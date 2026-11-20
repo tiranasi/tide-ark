@@ -36,6 +36,8 @@ async function loadInk() {
   const src = await (await fetch(INK_URL, { cache: 'no-store' })).text();
   const script = src.match(/<script setup>([\s\S]*?)<\/script>/)[1]
     .replace(/import\s+wx\s+from\s+['"]wx['"];?/, 'const wx = window.__wx;')
+    // 浏览器预览没有 AIUI 大模型：给 undefined，页面退回写好的台词
+    .replace(/import\s+\{\s*LanguageModel\s*\}\s+from\s+['"]language-model['"];?/, 'const LanguageModel = window.LanguageModel;')
     .replace(/from\s+['"](\.{1,2}\/[^'"]+)['"]/g, (_, p) => `from '${new URL(p, INK_URL).href}'`);
   const style = block(src, 'style');
   const template = block(src, 'page');

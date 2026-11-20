@@ -16,7 +16,7 @@
 ## 能力与数据
 
 - 仅使用本地存储 `wx.setStorageSync / getStorageSync` 保存进度（键 `tideark.save.v1`）。
-- 可选：居民台词在 `LanguageModel.availability()` 为 `available` 时由大模型改写一句，并用 `speechSynthesis` 以居民音色播报；不可用时使用写好的台词，游戏完全离线可玩。大模型只负责说话，不改任何数值。
+- 可选：居民台词在 `import { LanguageModel } from 'language-model'` 的 `availability()` 为 `available` 时由大模型改写一句，并用 `speechSynthesis` 以居民音色播报；不可用时使用写好的台词，游戏完全离线可玩。大模型只负责说话，不改任何数值。
 - 暂未声明 `permissions`。文档未写明 LLM / TTS 是否需要 `INTERNET`，真机验证后按需补上；语音输入（`RECORD_AUDIO`）尚未使用。
 
 ## 代码结构

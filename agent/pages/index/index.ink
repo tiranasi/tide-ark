@@ -6,9 +6,13 @@
 
 <script setup>
 import wx from 'wx';
+import { LanguageModel } from 'language-model';
 import * as G from '../../core/game.js';
 
 const KEY_MAP = { ArrowUp: 'up', ArrowDown: 'down', Enter: 'enter', Backspace: 'back' };
+const LLM_POLL_MS = 60;
+const LLM_TIMEOUT_MS = 12000;
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const TICK_MS = 1000;
 const SALVAGE_MS = 50;
 const SAVE_EVERY = 5;
@@ -122,24 +126,37 @@ export default {
     this.rewrite(o, p).then((text) => this.speak(text, p.voice));
   },
 
+  // LanguageModelTextStream 是轮询包装：read() 返回 { done, value }，value 为 undefined 表示暂时没有新块。
+  // 不是异步迭代器，不能 for await。
   async rewrite(o, p) {
     let text = G.clipLine(p.fallback);
     try {
-      const LM = globalThis.LanguageModel;
-      if (!LM || (await LM.availability()) !== 'available') return text;
-      const session = await LM.create({ initialPrompts: [{ role: 'system', content: p.system }] });
+      if (!LanguageModel || (await LanguageModel.availability()) !== 'available') {
+        console.log('[tideark] llm not available, using fallback line');
+        return text;
+      }
+      const session = await LanguageModel.create({ initialPrompts: [{ role: 'system', content: p.system }] });
       let out = '';
+      const started = Date.now();
       try {
-        for await (const chunk of session.promptStreaming(p.user)) {
+        const stream = session.promptStreaming(p.user);
+        while (true) {
+          if (this.state.ui.overlay !== o || Date.now() - started > LLM_TIMEOUT_MS) {
+            stream.cancel();
+            break;
+          }
+          const { done, value } = await stream.read();
+          if (done) break;
+          if (value === undefined) { await sleep(LLM_POLL_MS); continue; }
           // 有的实现给增量，有的给累计全文
-          out = chunk.startsWith(out) ? chunk : out + chunk;
-          if (this.state.ui.overlay !== o) break;
+          out = value.startsWith(out) ? value : out + value;
           o.lines[o.say] = `「${G.clipLine(out)}」`;
           this.setData({ vm: G.view(this.state) });
         }
       } finally {
         session.destroy();
       }
+      console.log(`[tideark] llm line in ${Date.now() - started}ms: ${out}`);
       if (G.clipLine(out)) text = G.clipLine(out);
       else o.lines[o.say] = `「${text}」`;
     } catch (err) {
