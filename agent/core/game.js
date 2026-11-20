@@ -778,6 +778,7 @@ export function endDay(s, rng = Math.random) {
   // 商人只待一天；海域选择也收起
   s.ui.screen = 'home';
   s.ui.focus = 0;
+  s.ui.msg = `第 ${s.day} 天早上，行动力补满了。`;
   if (stormy) s.flags.storm = true;
   const lines = [`饮水 ${SYM.water}-${consume}` + (short ? ` 缺 ${short}（-${thirst}）` : '') + `  夜里造水 ${SYM.water}+${made}` + (powered ? '' : ` 缺电${Math.round(t.ratio * 100)}%`)];
   const work = nightWork(s);
