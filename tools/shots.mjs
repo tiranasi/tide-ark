@@ -25,7 +25,11 @@ const only = process.argv.slice(2);
 const list = SCENES.filter(([name]) => !only.length || only.some((p) => name.startsWith(p)));
 
 const server = spawn(process.execPath, [join(ROOT, 'tools', 'serve.mjs')], { env: { ...process.env, PORT: String(PORT) }, stdio: 'ignore' });
-await new Promise((r) => setTimeout(r, 600));
+// 等预览服务器就绪（Windows 上 600ms 不够，前几张会截到空白页）
+for (let i = 0; i < 50; i++) {
+  try { const r = await fetch(`http://localhost:${PORT}/preview/`); if (r.ok) break; } catch {}
+  await new Promise((r) => setTimeout(r, 200));
+}
 mkdirSync(OUT, { recursive: true });
 
 try {
@@ -37,7 +41,8 @@ try {
       `--user-data-dir=${profile}`, '--window-size=480,352', '--virtual-time-budget=4000',
       `--screenshot=${file}`, `http://localhost:${PORT}/preview/?scene=${name}&shot=1`,
     ], { stdio: 'ignore', timeout: 60000 });
-    rmSync(profile, { recursive: true, force: true });
+    // Chrome 退出后可能还占着配置目录：重试几次，删不掉也不影响截图
+    try { rmSync(profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 300 }); } catch {}
     console.log(`✓ ${name}  ${title}`);
   }
 } finally {

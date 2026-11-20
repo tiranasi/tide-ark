@@ -59,15 +59,15 @@
 <table>
 <tr>
 <td><img src="docs/screenshots/02-home-ch1.png" width="400" alt="第一天的木筏"></td>
-<td><img src="docs/screenshots/07-salvage.png" width="400" alt="打捞：准星在海面上来回扫"></td>
+<td><img src="docs/screenshots/07-salvage.png" width="400" alt="打捞：近处看得清，远处是问号"></td>
 </tr>
 <tr>
-<td align="center">第 1 天。木筏、三钩、一台缺电的过滤器。</td>
-<td align="center">准星在海面上来回扫，看准了按确认落钩。</td>
+<td align="center">第 1 天。木筏、三钩、一台缺电的过滤器，一天 6 点行动力。</td>
+<td align="center">近处两件看得清、稳稳到手；远处是「？」，可能是好东西，也可能是巨鲨。</td>
 </tr>
 </table>
 
-海面上漂着旧世界的残渣：废料、塑料水瓶、生锈的零件，偶尔还有一只上了锁的箱子。你捞到的第一枚滤芯外壳都锈了，芯子却还是好的。你把它装进过滤器，等了很久。
+海面上漂着旧世界的残渣：废料、塑料水瓶、生锈的零件，偶尔还有一只箱子。你捞到的第一枚滤芯外壳都锈了，芯子却还是好的。你把它装进过滤器，等了很久。
 
 过滤器滴下了第一滴干净的水。
 
@@ -75,12 +75,12 @@
 
 <table>
 <tr>
-<td><img src="docs/screenshots/08-salvage-hit.png" width="400" alt="钩中一只水瓶"></td>
+<td><img src="docs/screenshots/08-salvage-hit.png" width="400" alt="钩中一件，见好就收？"></td>
 <td><img src="docs/screenshots/12-chests.png" width="400" alt="宝箱列表"></td>
 </tr>
 <tr>
-<td align="center">钩中了：一只水瓶，≈+4。</td>
-<td align="center">捞上来的箱子要靠连按确认撬开。</td>
+<td align="center">钩中了。东西先放船上，返航才入库：见好就收，还是再赌一钩？</td>
+<td align="center">捞上来的箱子，花 1 点行动力打开。</td>
 </tr>
 </table>
 
@@ -175,11 +175,11 @@
 <table>
 <tr>
 <td><img src="docs/screenshots/14-trade.png" width="400" alt="秤砣的货"></td>
-<td><img src="docs/screenshots/13-chest-open.png" width="400" alt="撬锁"></td>
+<td><img src="docs/screenshots/13-chest-open.png" width="400" alt="开箱"></td>
 </tr>
 <tr>
 <td align="center">秤砣每三天来一次，每笔交易当天限一次。</td>
-<td align="center">铁箱三道锁，金箱四道。</td>
+<td align="center">铁箱里常有滤芯，金箱一定有电鳗。</td>
 </tr>
 </table>
 
@@ -197,7 +197,7 @@
 
 <p align="center"><img src="docs/screenshots/06-zones.png" width="480" alt="选择海域"></p>
 
-残骸带里，半截高楼从水里伸出来，楼顶还挂着旧世界的广告牌。东西多，危险也多：被改造过的**巨鲨**会混在漂浮物里，钩中它就会被扯断一钩。
+残骸带里，半截高楼从水里伸出来，楼顶还挂着旧世界的广告牌。东西多，危险也多：被改造过的**巨鲨**藏在远处的「？」里，钩中它会多扯断一钩，还会叼走船上一半的收获。
 
 <p align="center"><img src="docs/screenshots/10-salvage-wreck.png" width="480" alt="残骸带打捞"></p>
 
@@ -350,7 +350,7 @@
 
 ### 派他们出海，或者找他们聊聊
 
-人多了，你不必每一趟都亲自出海。居民可以替你去：派谁、去哪由你决定，带回来什么由海决定。每趟要带 2 份淡水当口粮，40 秒后回来，去自己擅长的海域会多带一件。
+人多了，你不必每一趟都亲自出海。居民可以替你去：派谁、去哪由你决定，带回来什么由海决定。派人不花你的行动力，但每人要带 2 份淡水当口粮；他们第二天早上回来，收获写进当晚的结算。去自己擅长的海域会多带一件，好感到三颗以上再多带一件。
 
 <table>
 <tr>
@@ -359,14 +359,14 @@
 </tr>
 <tr>
 <td align="center">谁在船上、谁在海上、好感几颗心。</td>
-<td align="center">铆钉擅长残骸带：带回 4 件。</td>
+<td align="center">铆钉擅长残骸带：明早带回 3 件。</td>
 </tr>
 <tr>
-<td><img src="docs/screenshots/18-crew-back.png" width="400" alt="铆钉回来了"></td>
+<td><img src="docs/screenshots/18-crew-back.png" width="400" alt="派遣的收获并入早上的结算"></td>
 <td><img src="docs/screenshots/17-mate-nowater.png" width="400" alt="缺水不能派"></td>
 </tr>
 <tr>
-<td align="center">「能用的都拆回来了。」</td>
+<td align="center">出海的人明早回来，收获并进结算。</td>
 <td align="center">水不够，谁也出不了海。</td>
 </tr>
 </table>
@@ -390,10 +390,19 @@
 
 ## 海上的日子
 
-一天是 60 秒。白天打捞、建造、开箱、派人出海；天黑时结算：
+一天有 **6 点行动力**。没有倒计时，想好了再动：
+
+| 行动 | 行动力 |
+|---|---|
+| 出海：近海 / 残骸带 / 沉城 | 2 / 3 / 4 |
+| 建造升级、修补、开箱 | 1 |
+| 下潜实验室 | 2 |
+| 派人出海、聊天、交易 | 不花 |
+
+行动力用完，焦点会跳到「结束今天」；也可以提前结束。天黑时结算：
 
 1. **喝水**：人越多，喝得越多。缺一份水掉 6 点耐久。
-2. **夜里的活**：寄居蟹吊机捞废料，章鱼工坊造滤芯。
+2. **夜里的活**：电鳗发电，过滤器造水（电不够就减产，最低三成）；寄居蟹吊机捞废料，章鱼工坊造滤芯。
 3. **今晚是什么夜**：平静夜、风暴潮夜、海盗夜，三选一。
 
 庇护所从木筏一路升到方舟，经过四个时代：
@@ -405,7 +414,7 @@
 | 电气 | Lv5–6 | 收留邻居，去远海，对付黑帆 |
 | 工业 → 方舟 | Lv7–8 | 下潜沉城，装上潮汐引擎 |
 
-耐久归零，庇护所就沉了。
+耐久归零，庇护所就沉了。可以从当天早上重来，也可以从头开始；返回键不会替你选。
 
 <p align="center"><img src="docs/screenshots/27-over.png" width="480" alt="庇护所沉没"></p>
 
@@ -446,8 +455,8 @@
 | 键 | 眼镜手势 | 作用 |
 |---|---|---|
 | 上 / 下 | 镜腿前滑 / 后滑 | 移动焦点 |
-| 确认 | 单击 | 进入、落钩、撬锁、关弹窗；二选一的「是」 |
-| 返回 | 返回 | 回上一级；打捞中提前返航；二选一的「否」 |
+| 确认 | 单击 | 进入、落钩、开箱、关弹窗；有选项的弹窗里确认当前选项 |
+| 返回 | 返回 | 回上一级；打捞中提前返航（船上的收获照样入库）。海盗、终章、沉没这类有选项的弹窗不响应返回 |
 
 ### 在浏览器里预览
 
@@ -467,7 +476,7 @@ npm test
 node tools/shots.mjs
 ```
 
-截图会重新生成到 [docs/screenshots/](docs/screenshots/README.md)，全部 27 张也打包在 [tide-ark-screenshots.zip](docs/screenshots/tide-ark-screenshots.zip)。
+截图会重新生成到 [docs/screenshots/](docs/screenshots/README.md)，全部 28 张也打包在 [tide-ark-screenshots.zip](docs/screenshots/tide-ark-screenshots.zip)。
 
 ### 文档
 

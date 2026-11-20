@@ -2,18 +2,19 @@
 // 所有函数直接修改传入的 state；rng 可注入以便测试。
 import { ART } from './art.js';
 
-export const DAY_LEN = 60; // 一天的实时秒数
+// 回合制：每天固定行动力，用完（或主动「结束今天」）进入夜晚结算。没有实时计时。
+export const AP_MAX = 6;
+export const AP_COST = { near: 2, wreck: 3, sunken: 4, lab: 2, build: 1, repair: 1, chest: 1 };
 export const MAX_SHELTER = 8;
 export const HP_MAX = 100;
-export const SALVAGE_COOLDOWN = 8;
 export const HOOKS_PER_TRIP = 3;
 export const REPAIR_COST = 5;
 export const REPAIR_HP = 20;
 export const SAVE_KEY = 'tideark.save.v1'; // 键不变；存档内的 v 才是版本号
-export const SAVE_VERSION = 2;
+export const SAVE_VERSION = 3;
 
 // docs/系统设计.md §8：Lv5 起更贵，匹配新增的被动产出
-const SHELTER_SCRAP = [10, 25, 45, 80, 130, 200, 300];
+const SHELTER_SCRAP = [10, 25, 40, 70, 110, 160, 240];
 const SHELTER_WATER = [5, 8, 12, 18, 25, 35, 50];
 const ARK_PARTS = 10; // 升到 Lv8 额外要滤芯
 
@@ -68,9 +69,9 @@ export const BLUEPRINTS = 3;
 
 // 海域（§7）。实验室不是打捞海域：拿到门禁卡后出现在海域列表里，下潜一次播放剧情
 const ZONES = {
-  near: { label: '近海', sub: '安全 · 废料、淡水', loot: LOOT, speed: 1, width: 1 },
-  wreck: { label: '残骸带', sub: '废料多 · 有巨鲨 · 图纸碎片', loot: WRECK_LOOT, speed: 1.15, width: 0.9 },
-  sunken: { label: '沉城', sub: '铁箱金箱 · 巨鲨 · 门禁卡', loot: SUNKEN_LOOT, speed: 1.3, width: 0.8 },
+  near: { label: '近海', sub: '安全 · 废料、淡水', loot: LOOT },
+  wreck: { label: '残骸带', sub: '废料多 · 有巨鲨 · 图纸碎片', loot: WRECK_LOOT },
+  sunken: { label: '沉城', sub: '铁箱金箱 · 巨鲨 · 门禁卡', loot: SUNKEN_LOOT },
   lab: { label: '沉没实验室', sub: '门禁卡 · 下潜' },
 };
 export function zonesOf(s) {
@@ -88,9 +89,9 @@ const KEY_ITEM = {
 const needKeycard = (s) => s.chapter >= 7 && !!s.npc.bubble && !s.flags.keycard;
 
 const CHEST = {
-  wood: { label: '木箱', locks: 2 },
-  iron: { label: '铁箱', locks: 3 },
-  gold: { label: '金箱', locks: 4 },
+  wood: { label: '木箱' },
+  iron: { label: '铁箱' },
+  gold: { label: '金箱' },
 };
 
 // 深蓝纪元的庇护所时代（见 docs/设计文档.md「世界观」）
@@ -102,7 +103,7 @@ export function eraOf(lv) { let e = ERAS[0][1]; for (const [min, name] of ERAS) 
 const STORY = {
   prologue1: { art: 'story-01', title: '大淹没', lines: ['公元 2147 年，海平面失控上涨。', '城市、平原与工厂相继沉没。', '人们把之后的日子叫作深蓝纪元。'] },
   prologue2: { art: ['npc-06', 'story-02'], title: '深蓝纪元 183 年', lines: ['「淡水配给费，又欠了三期。」', '「规则不是我定的，但我执行它。」', '配给官白砂在你的名字上盖了章。'] },
-  prologue3: { art: 'story-02', title: '外海', lines: ['他们给了你一块木筏、几根废料，', '和一台坏掉的过滤器。', '先活下去。出海打捞吧。'] },
+  prologue3: { art: 'story-02', title: '外海', lines: ['他们给了你一块木筏、几根废料，', '和一台坏掉的过滤器。', '每天力气有限。出海打捞吧。'] },
   part: { art: 'story-03', title: '第一枚滤芯', lines: ['旧世界的滤芯，外壳都锈了，', '芯子还是好的。', '装进过滤器试试。'] },
   filter: { art: 'story-04', title: '第一口淡水', lines: ['过滤器滴下了干净的水。', '你想起白砂盖章的样子。', '水，原来是可以自己造的。'] },
   rivet_found: { art: ['npc-02', 'story-03'], title: '集装箱里有人', lines: ['「咳……谢了。我叫铆钉。」', '「城邦说我修坏了配给阀，', '把我锁进箱子扔了。」'] },
@@ -127,7 +128,7 @@ const STORY = {
   hawk_join: { art: ['npc-03', 'turtle-lv1-front'], title: '灯塔叔', lines: ['「近海早被捞空了。', '往北，是旧城的残骸带。」', '「给海龟套上拖架，我带路。」', '解锁：海龟拖船'] },
   turtle: { art: 'turtle-lv1-front', title: '海龟拖船', lines: ['海龟拖着木筏往北游。', '出海时可以选海域了。'] },
   wreck_zone: { art: ['place-03', 'story-09'], title: '残骸带', lines: ['半截高楼从水里伸出来，', '楼顶还挂着旧世界的广告牌。', '灯塔叔：「别看了，捞。」'] },
-  shark: { art: ['lore-03', 'event-04'], title: '变异巨鲨', lines: ['水下有一道比船还长的影子。', '它一口咬断了钩索。', '灯塔叔：「下次看准了再落钩。」'] },
+  shark: { art: ['lore-03', 'event-04'], title: '变异巨鲨', lines: ['水下有一道比船还长的影子。', '它咬断了钩索，还叼走了半船收获。', '灯塔叔：「看不清的，别乱下钩。」'] },
   blueprint1: { art: ['lore-02', 'story-05'], title: '图纸碎片 1/3', lines: ['一张泡烂的工程图，', '角落盖着一个波浪形印章：', '「深蓝计划」。'] },
   blueprint2: { art: ['lore-02', 'story-05'], title: '图纸碎片 2/3', lines: ['第二片图纸。', '线条连起来了，', '像是某种巨大的发电机。'] },
   blueprint3: { art: ['lore-02', 'story-05'], title: '发电机图纸', lines: ['铆钉：「这是电鳗发电机……', '但比我们的大一百倍。」', '图纸签名：林。'] },
@@ -135,14 +136,14 @@ const STORY = {
   pirate_warn: { art: ['npc-05', 'place-04', 'event-04'], title: '黑帆', lines: ['灯塔叔放下望远镜：', '「锈锚的船。他闻到灯光了。」', '海盗会在风暴后的那一晚来。'] },
   raid_win: { art: ['npc-05', 'story-08'], title: '黑帆退了', lines: ['锈锚的船停在射程外，', '打出一面白旗。', '他想谈谈。'] },
   rust_talk: { art: ['npc-05', 'story-08'], title: '锈锚', lines: ['「十年前，白砂也给我盖过章。」', '「你造你的城，我不碰。」', '「要找城邦算账时，叫我。」', '海盗不再来袭 · 防御 +5'] },
-  lure: { art: 'lure-lv1-front', title: '灯笼鱼信标', lines: ['深海的光照进了浅海。', '好东西开始往你这边漂。', '准星变慢，稀有物更多'] },
+  lure: { art: 'lure-lv1-front', title: '灯笼鱼信标', lines: ['深海的光照进了浅海。', '好东西开始往你这边漂。', '远处更容易钩中，稀有物更多'] },
   // 第七章
   industry: { art: ['npc-06', 'place-05'], title: '来信', lines: ['城邦的信鸽落在吊臂上。', '「你的庇护所未经登记，', '须缴纳淡水税。——白砂」'] },
   sunken_zone: { art: ['place-01', 'npc-03'], title: '沉城', lines: ['图纸上的坐标，指向海底一座穹顶。', '灯塔叔：「那地方，', '灯照下去都会被吃掉。」'] },
   bubble_found: { art: ['npc-08', 'place-01'], title: '气泡', lines: ['管子另一头拴着个铜盔潜水员，', '打捞公司把他丢在了下面。', '「……我还能下去。我认得路。」', '气泡入住：沉城打捞 +1 钩'] },
   keycard: { art: ['npc-08', 'place-01'], title: '门禁卡', lines: ['卡上印着：深蓝计划 · 潮汐组。', '气泡：「门还通电。', '下面有人。」'] },
   octopus_night: { art: ['lore-04', 'event-04'], title: '巨型章鱼', lines: ['沉城里的东西跟着你浮了上来。', '风暴夜，触手拍打着船体。', '从今往后，风暴潮伤害 +20%。'] },
-  glow: { art: ['lore-05', 'event-10'], title: '发光水母', lines: ['水母的光照亮了海底。', '准星慢了下来。'] },
+  glow: { art: ['lore-05', 'event-10'], title: '发光水母', lines: ['水母的光照亮了海底。', '远处的东西都看清了。'] },
   lab: { art: 'place-02', title: '沉没实验室', lines: ['穹顶里有一个气泡舱，', '一个老人坐在发光的屏幕前。', '「……终于有人来了。」'] },
   lin: { art: ['npc-09', 'place-02'], title: '林博士', lines: ['「深蓝计划有两部分。', '一是让人适应海洋——', '二是让海水变成免费的淡水。」'] },
   tidesong: { art: ['npc-12', 'place-02'], title: '潮生', lines: ['舱角有个人，颈侧有鳃。', '「我是第一部分。」', '「第二部分，被城邦沉进了海底。」'] },
@@ -227,11 +228,7 @@ function beat(s, id) {
 function flushStory(s) {
   const ui = s.ui;
   if (ui.overlay || ui.salvage || (ui.chest && !ui.chest.reward)) return;
-  if (!s.queue.length) {
-    // 剧情都播完后，再报派遣归来
-    if (s.returns && s.returns.length) ui.overlay = returnOverlay(s.returns.shift());
-    return;
-  }
+  if (!s.queue.length) return;
   const id = s.queue.shift();
   if (id === 'choice') { ui.overlay = choiceOverlay(); return; }
   const st = storyOf(id);
@@ -259,11 +256,13 @@ function progress(s) {
     flushStory(s);
   }
 }
+// 二选一弹窗：上下选、确认生效；返回键不作答（避免误触做出不可撤回的选择）
 function choiceOverlay() {
   return {
     kind: 'choice', title: '你的决定',
-    lines: ['确认：向整片海广播图纸', '返回：把图纸交给白砂', '这个选择不能撤回。'],
-    action: '确认 · 广播    返回 · 交出',
+    lines: ['图纸在你手里。', '这个选择不能撤回。'],
+    options: ['向整片海广播图纸', '把图纸交给白砂'], pick: 0,
+    action: '上下选择 · 确认',
   };
 }
 // 结局二选一：broadcast=true 广播，false 交出
@@ -279,7 +278,7 @@ export function chooseEnding(s, broadcast) {
 
 // ---------- 居民与剧情漂流物 ----------
 const NPC = { rivet: '铆钉', coral: '珊瑚', pot: '小锅', beam: '铁梁', hawk: '灯塔叔', rust: '锈锚', bubble: '气泡' };
-// 条件满足时，每次出海必定刷出一件（宽 ×1.5，标记 !），直到救起；zone 限定海域
+// 条件满足时，每次出海必定刷在最近一格（标记 !），直到救起；zone 限定海域
 const DRIFT = {
   rivet: { label: '漂流集装箱', when: (s) => s.chapter >= 1 && s.day >= 2 },
   coral: { label: '漂流采样舱', when: (s) => s.chapter >= 2 },
@@ -289,6 +288,7 @@ const DRIFT = {
 // 下潜实验室：不打捞，播放剧情（林博士、潮生不入住，不喝水）
 export function diveLab(s) {
   if (!s.flags.keycard || s.flags.lab) return false;
+  if (!spendAp(s, AP_COST.lab, '下潜')) return false;
   s.flags.lab = true;
   ['lab', 'lin', 'tidesong', 'truth'].forEach((id) => beat(s, id));
   s.ui.screen = 'home';
@@ -299,77 +299,77 @@ export function diveLab(s) {
 export const residents = (s) => Object.keys(s.npc).length;
 
 // ---------- 居民：派遣与聊天（docs/交互设计.md） ----------
-// 派遣：居民替你出海，DISPATCH_SECS 游戏秒后带回 2 件（擅长海域 +1，好感 ≥3 再 +1）。
-// 收获只由掉落表决定；大模型（若可用）只负责把汇报/闲聊说得更像这个人，见 index.ink。
-export const DISPATCH_SECS = 40;
+// 派遣：不花行动力，花口粮；居民当天不在船上，第二天早上带回 1 件（擅长海域 +1，好感 ≥3 再 +1），并入夜间结算。
+// 收获只由掉落表决定；大模型（若可用）只负责把闲聊说得更像这个人，见 index.ink。
 export const DISPATCH_WATER = 2; // 口粮
 export const BOND_MAX = 5;
 export const CREW = {
   rivet: { art: 'npc-02', zone: 'wreck', voice: 'male-qn-qingse', persona: '机械师，被城邦冤枉弄坏配给阀，嘴硬手巧，爱拆东西',
-    lines: ['钉子要斜着进才咬得住。', '配给阀是自己漏的，真的。', '捞到铜线留给我。'], warn: '今晚潮大，我再钉一遍补丁。', back: '能用的都拆回来了。' },
+    lines: ['钉子要斜着进才咬得住。', '配给阀是自己漏的，真的。', '捞到铜线留给我。'], warn: '今晚潮大，我再钉一遍补丁。' },
   coral: { art: 'npc-04', zone: 'near', voice: 'female-tianmei', persona: '海洋生物学者，心疼被改造的电鳗，说话温和、爱记笔记',
-    lines: ['电鳗今天电压很稳。', '笔记又潮了，还看得清。', '海在变，我们也在变。'], warn: '海鸟往南飞了，今晚小心。', back: '顺手记了三种新藻类。' },
+    lines: ['电鳗今天电压很稳。', '笔记又潮了，还看得清。', '海在变，我们也在变。'], warn: '海鸟往南飞了，今晚小心。' },
   pot: { art: 'npc-07', zone: 'near', voice: 'clever_boy', persona: '被赶出后厨的年轻厨子，胆小、乐观、三句不离吃',
-    lines: ['今晚海藻汤，明晚也是。', '水省着喝，汤可以淡点。', '锅底刻的日子快满了。'], warn: '锅都绑好了，晚饭照开。', back: '带了点能下锅的。' },
+    lines: ['今晚海藻汤，明晚也是。', '水省着喝，汤可以淡点。', '锅底刻的日子快满了。'], warn: '锅都绑好了，晚饭照开。' },
   beam: { art: 'npc-11', zone: 'wreck', voice: 'male-qn-jingying', persona: '沉默的建筑工，话极少，只相信量过三遍的数字',
-    lines: ['地基还能再加一层。', '钢梁不说谎。', '量三遍，钉一遍。'], warn: '今晚的潮，防御差一点。', back: '梁是好梁，扛回来了。' },
+    lines: ['地基还能再加一层。', '钢梁不说谎。', '量三遍，钉一遍。'], warn: '今晚的潮，防御差一点。' },
   hawk: { art: 'npc-03', zone: 'wreck', voice: 'Chinese (Mandarin)_Radio_Host', persona: '木腿老司机，骑大海龟认路，爱讲旧世界的事',
-    lines: ['这底下原来是高速公路。', '海龟比车好，不用加油。', '残骸带楼顶还没捞完。'], warn: '起浪了，海龟不肯出来。', back: '老路还认得。' },
+    lines: ['这底下原来是高速公路。', '海龟比车好，不用加油。', '残骸带楼顶还没捞完。'], warn: '起浪了，海龟不肯出来。' },
   rust: { art: 'npc-05', zone: 'sunken', voice: 'female-yujie', persona: '前海盗船长，被城邦逼上黑帆，冷静、讲约定',
-    lines: ['白砂的章，我也挨过。', '黑帆收了，刀还磨着。', '海上没规则，只有约定。'], warn: '今晚风大，我守夜。', back: '顺路吓跑了两条小船。' },
+    lines: ['白砂的章，我也挨过。', '黑帆收了，刀还磨着。', '海上没规则，只有约定。'], warn: '今晚风大，我守夜。' },
   bubble: { art: 'npc-08', zone: 'sunken', voice: 'lovely_girl', persona: '被打捞公司丢在海底的潜水员，安静，熟悉沉城每一条路',
-    lines: ['下面比上面安静。', '铜盔里能听见心跳。', '沉城的路我闭眼也认得。'], warn: '今晚别下水，它们会醒。', back: '下面的门又开了一扇。' },
+    lines: ['下面比上面安静。', '铜盔里能听见心跳。', '沉城的路我闭眼也认得。'], warn: '今晚别下水，它们会醒。' },
 };
 export const crewOf = (s) => Object.keys(CREW).filter((k) => s.npc[k]);
 const bondOf = (s, k) => s.bond[k] || 0;
 const addBond = (s, k) => { s.bond[k] = Math.min(BOND_MAX, bondOf(s, k) + 1); };
-const hearts = (b) => '♥'.repeat(b) + '♡'.repeat(BOND_MAX - b);
-export const dispatchSize = (s, k, zone) => 2 + (CREW[k].zone === zone ? 1 : 0) + (bondOf(s, k) >= 3 ? 1 : 0);
+// 单色字形：♥ 在眼镜上会渲染成红色 emoji
+const hearts = (b) => '●'.repeat(b) + '○'.repeat(BOND_MAX - b);
+export const dispatchSize = (s, k, zone) => 1 + (CREW[k].zone === zone ? 1 : 0) + (bondOf(s, k) >= 3 ? 1 : 0);
 const lootZones = (s) => zonesOf(s).filter((z) => ZONES[z].loot);
 // 居民页的动作：每个可去的海域一行 + 聊聊
 function mateMenu(s) { return [...lootZones(s), 'talk']; }
 
 export function dispatch(s, k, zone) {
   if (!s.npc[k] || !CREW[k]) return false;
-  if (s.crew[k]) { s.ui.msg = `${NPC[k]}还在海上。`; return false; }
+  if (s.crew[k]) { s.ui.msg = `${NPC[k]}今天已经出海了。`; return false; }
   if (!lootZones(s).includes(zone)) return false;
   if (s.res.water < DISPATCH_WATER) { s.ui.msg = `口粮不够：需要 ${SYM.water}${DISPATCH_WATER}。`; return false; }
   s.res.water -= DISPATCH_WATER;
-  s.crew[k] = { zone, left: DISPATCH_SECS };
-  s.ui.msg = `${NPC[k]}出发去${ZONES[zone].label}了。`;
+  s.crew[k] = { zone };
+  s.ui.msg = `${NPC[k]}出发去${ZONES[zone].label}了，明早回来。`;
   return true;
 }
 
-// 派遣不会捞到剧情物；巨鲨=丢一件，漂流瓶照常轮换台词
+// 夜间结算时所有派遣的居民归来：派遣不会捞到剧情物；巨鲨=丢一件。返回结算行（没人出海时为空）
 const DISPATCH_KINDS = new Set(['scrap', 'bottle', 'part', 'chest', 'eel', 'weed', 'letter', 'shark']);
-function crewReturn(s, k, rng) {
-  const { zone } = s.crew[k];
-  delete s.crew[k];
-  const table = lootTable(s, zone).filter((x) => DISPATCH_KINDS.has(x.kind));
-  const haul = [];
-  let shark = false;
-  for (let i = 0; i < dispatchSize(s, k, zone); i++) {
-    const kind = pickWeighted(rng, table).kind;
-    if (kind === 'shark') shark = true;
-    else if (kind === 'letter') { s.flags.letters = (s.flags.letters || 0) + 1; haul.push('漂流瓶'); }
-    else haul.push(applyLoot(s, kind, rng, zone));
+function crewReturns(s, rng) {
+  const ks = Object.keys(s.crew);
+  if (!ks.length) return '';
+  const got = [];
+  let sharks = 0;
+  for (const k of ks) {
+    const { zone } = s.crew[k];
+    delete s.crew[k];
+    if (!CREW[k] || !ZONES[zone] || !ZONES[zone].loot) continue;
+    const table = lootTable(s, zone).filter((x) => DISPATCH_KINDS.has(x.kind));
+    for (let i = 0; i < dispatchSize(s, k, zone); i++) {
+      const kind = pickWeighted(rng, table).kind;
+      if (kind === 'shark') sharks++;
+      else if (kind === 'letter') s.flags.letters = (s.flags.letters || 0) + 1;
+      else if (kind !== 'weed') got.push(applyGain(s, rollLoot(s, kind, rng, zone)));
+    }
+    addBond(s, k);
   }
-  addBond(s, k);
-  s.returns.push({ npc: k, zone, haul, shark });
-  flushStory(s);
+  return `派遣 ${ks.length} 人：${mergeTexts(got) || '空手'}` + (sharks ? ` · 遇鲨丢 ${sharks}` : '');
 }
-function crewTick(s, dt, rng) {
-  for (const k of Object.keys(s.crew)) {
-    s.crew[k].left -= dt;
-    if (s.crew[k].left <= 0) crewReturn(s, k, rng);
+// 「#+3」「#+4」「≈+2」→「#+7 ≈+2」；非数值文本原样保留
+function mergeTexts(list) {
+  const sum = {}, other = [];
+  for (const t of list) {
+    const m = /^(.+)\+(\d+)$/.exec(t);
+    if (m) sum[m[1]] = (sum[m[1]] || 0) + +m[2]; else if (t && !other.includes(t)) other.push(t);
   }
-}
-function returnOverlay(r) {
-  return {
-    kind: 'crew', npc: r.npc, zone: r.zone, haul: r.haul, title: `${NPC[r.npc]}回来了`,
-    lines: [`「${r.shark ? '遇到巨鲨，丢了一件。' : CREW[r.npc].back}」`, `${ZONES[r.zone].label}：${r.haul.join('  ') || '空手而归'}`],
-    say: 0, action: '确认 · 收下',
-  };
+  return [...Object.entries(sum).map(([k, v]) => `${k}+${v}`), ...other].join(' ');
 }
 
 // 聊聊：今晚危险时先提醒，否则按次数轮换台词；每天第一次聊 +1 好感
@@ -394,9 +394,7 @@ export function talkPrompt(s, o) {
   const system = `你是末世漂流游戏《潮汐方舟》里的居民「${NPC[o.npc]}」：${c.persona}。` +
     '用中文、第一人称、口语，只说一句话，不超过16个字，不要旁白、不要引号、不要表情。';
   const state = `第${s.day}天，庇护所耐久${Math.round(s.hp)}，淡水${Math.floor(s.res.water)}，${night}。`;
-  const ask = o.kind === 'crew'
-    ? `你刚从${ZONES[o.zone].label}回来，带回：${o.haul.join('、') || '什么都没有'}。向船长汇报一句。`
-    : `船长来找你闲聊，你们的好感是${bondOf(s, o.npc)}/${BOND_MAX}。说一句符合你性格、和眼下处境有关的话。`;
+  const ask = `船长来找你闲聊，你们的好感是${bondOf(s, o.npc)}/${BOND_MAX}。说一句符合你性格、和眼下处境有关的话。`;
   return { system, user: state + ask, voice: c.voice, fallback: o.lines[o.say] };
 }
 // 眼镜弹窗一行放得下的长度
@@ -414,7 +412,7 @@ function rescue(s, k) {
 // ---------- 风暴潮（第三章起，每 3 晚一次） ----------
 export const STORM_CHAPTER = 3;
 export const stormNight = (s, day) => s.chapter >= STORM_CHAPTER && day % 3 === 0;
-export const tideOf = (day) => 10 + 4 * day;
+export const tideOf = (day) => Math.round(12 + 4.5 * day);
 // 防御 = 12·庇护所 + 10·藤壶 + 5·铁梁 + 5·锈锚（风暴与海盗共用）
 export const defense = (s) => 12 * s.lv.shelter + 10 * s.lv.armor + (s.npc.beam ? 5 : 0) + (s.npc.rust ? 5 : 0);
 // 章鱼夜：沉城解锁后（拖船 Lv2），巨型章鱼跟着风暴来，风暴伤害 +20%（预报已包含）
@@ -438,7 +436,8 @@ export function pirateNight(s, day) {
   return day % 3 === 1 && day >= s.flags.ch6Day + 2; // 至少给两天准备
 }
 // 战力 30 + 3·天；每交一次保护费，下次 +10%
-export const pirateForce = (s, day) => Math.round((30 + 3 * day) * Math.pow(1.1, s.flags.paid || 0));
+export const PIRATE_CAP = 100; // 第六章庇护所 Lv6 + 藤壶 Lv3 + 铁梁 = 107 就能打赢，保证不会卡关
+export const pirateForce = (s, day) => Math.min(PIRATE_CAP, Math.round((30 + 3 * day) * Math.pow(1.1, s.flags.paid || 0)));
 // 下一个危险夜（风暴或海盗），最多看 3 晚
 export function nextDanger(s) {
   for (let d = s.day; d < s.day + 3; d++) {
@@ -468,9 +467,11 @@ const tradeUsed = (s, i) => !!(s.trade && s.trade.day === s.day && s.trade.used[
 // 从子界面返回时，主界面焦点回到对应项
 const SCREEN_ITEM = { build: 'build', chests: 'chests', trade: 'trader', zones: 'salvage', crew: 'crew' };
 function homeMenu(s) {
-  const list = ['salvage', 'build', 'chests', 'repair'];
-  if (residents(s) > 0) list.splice(3, 0, 'crew');
+  const list = ['salvage', 'build', 'chests'];
+  if (residents(s) > 0) list.push('crew');
+  if (s.hp < HP_MAX) list.push('repair');
   if (traderDay(s, s.day)) list.push('trader');
+  list.push('rest');
   return list;
 }
 // 建造列表只显示已解锁的设施，按解锁顺序
@@ -492,13 +493,13 @@ export const BUILD_ROWS = 4; // 建造列表一屏最多 4 行，超出滚动
 const ART_BASE = '../../assets/art/';
 const ART_SET = new Set(ART);
 const LOOT_ART = { scrap: 'salvage-04', bottle: 'salvage-07', part: 'salvage-01', chest: 'chest-wood-closed', eel: 'char-24', weed: 'salvage-08', blueprint: 'lore-02', shark: 'lore-03', jelly: 'lore-05', letter: 'salvage-18' };
-const HOME_ART = { salvage: 'icon-08', build: 'icon-06', chests: 'icon-10', repair: 'icon-07', trader: 'npc-10', crew: 'npc-02' };
+const HOME_ART = { salvage: 'icon-08', build: 'icon-06', chests: 'icon-10', repair: 'icon-07', trader: 'npc-10', crew: 'npc-02', rest: ['event-10', 'story-01'] };
 const ZONE_ART = { near: 'icon-08', wreck: ['place-03', 'turtle-lv1-front'], sunken: ['place-01', 'turtle-lv2-front'], lab: ['place-02', 'place-01'] };
 function overlayArt(o) {
   if (o.kind === 'choice') return art(['npc-06', 'lore-01', 'story-10']);
   if (o.kind === 'raid') return art(['npc-05', 'place-04', 'event-04']);
   if (o.kind === 'over') return art('story-07');
-  if (o.kind === 'crew' || o.kind === 'talk') return art(CREW[o.npc].art);
+  if (o.kind === 'talk') return art(CREW[o.npc].art);
   if (o.kind === 'story') return art(storyOf(o.id).art);
   return art(o.storm ? 'event-04' : 'event-10');
 }
@@ -526,11 +527,20 @@ function pickWeighted(rng, list) {
 export function caps(s) {
   return { water: 20 + 10 * s.lv.shelter, power: 10 + 10 * s.lv.eel };
 }
+// 每晚的产出（夜间结算时发生）：电鳗发电 → 过滤器耗电造水。
+// 电不够时按比例减产，最低 30%（不用电也能靠日晒蒸馏一点）
+export const NIGHT = { water: 6, power: 12, filterNeed: 5, octoNeed: 3 };
 export function rates(s) {
-  const gen = 0.25 * s.lv.eel * (s.npc.coral ? 1.2 : 1);
-  const need = 0.1 * s.lv.filter + 0.05 * s.lv.octo; // 章鱼工坊也耗电
-  const full = 0.2 * s.lv.filter;
-  return { gen, need, full, weak: full * 0.3 };
+  const gen = Math.round(NIGHT.power * s.lv.eel * (s.npc.coral ? 1.2 : 1));
+  const need = NIGHT.filterNeed * s.lv.filter + NIGHT.octoNeed * s.lv.octo; // 章鱼工坊也耗电
+  const full = NIGHT.water * s.lv.filter;
+  return { gen, need, full };
+}
+// 今晚的实际产出：{ powerUse, water, ratio }
+function tonight(s, r = rates(s)) {
+  const have = Math.min(caps(s).power, s.res.power + r.gen);
+  const ratio = r.need ? Math.max(0.3, Math.min(1, have / r.need)) : 1;
+  return { have, powerUse: Math.min(have, r.need), water: Math.floor(r.full * ratio), ratio };
 }
 
 // ---------- state ----------
@@ -538,7 +548,7 @@ export function newGame() {
   return {
     v: SAVE_VERSION,
     day: 1,
-    clock: 0,
+    ap: AP_MAX, // 今天剩余行动力
     hp: HP_MAX,
     res: { scrap: 8, water: 10, power: 0, parts: 0, eels: 0 },
     lv: { shelter: 1, filter: 1, eel: 0, armor: 0, octo: 0, crab: 0, turtle: 0, lure: 0 },
@@ -546,14 +556,13 @@ export function newGame() {
     npc: {}, // 已入住居民
     flags: {}, // sailed / storm 等一次性进度
     chests: [],
-    cooldown: 0,
     over: false,
     ending: null, // 'broadcast' | 'deal'：结局后进入自由模式
     seen: {}, // 已触发的剧情节点
     queue: [], // 待弹出的剧情节点
-    crew: {}, // 派遣中的居民 { k: { zone, left } }
+    crew: {}, // 今天出海的居民 { k: { zone } }，夜间结算时归来
     bond: {}, // 居民好感 0–5
-    returns: [], // 已归来、待弹出汇报的派遣
+    checkpoint: null, // 今天早上的存档：沉没后可以从这里重来
     ui: freshUi('漂流第一天。先出海打捞些废料吧。'),
   };
 }
@@ -578,11 +587,15 @@ export function restore(saved) {
     ...fresh, ...saved,
     lv: { ...fresh.lv, ...saved.lv },
     npc: { ...saved.npc }, flags: { ...saved.flags }, seen: { ...saved.seen }, queue: [...(saved.queue || [])],
-    crew: { ...saved.crew }, bond: { ...saved.bond }, returns: [...(saved.returns || [])],
+    crew: { ...saved.crew }, bond: { ...saved.bond },
   };
   if (saved.chapter == null) migrateV01(s);
   s.v = SAVE_VERSION;
   delete s.won; delete s.arkSeen; // v1 的方舟弹窗标记，结局改由 s.ending 记录
+  // v2 是实时制：没有行动力，派遣按秒倒计时、归来汇报单独弹窗
+  delete s.clock; delete s.cooldown; delete s.returns;
+  if (!(s.ap >= 0 && s.ap <= AP_MAX)) s.ap = AP_MAX;
+  for (const k of Object.keys(s.crew)) s.crew[k] = { zone: s.crew[k].zone || 'near' };
   // 补上已进入章节的一次性设置（存档早于该章节实现时）
   for (let i = 1; i <= s.chapter; i++) if (CHAPTERS[i] && CHAPTERS[i].enter) CHAPTERS[i].enter(s);
   s.ui = freshUi(`欢迎回来。第 ${s.day} 天。`);
@@ -673,6 +686,7 @@ export function upgrade(s, what) {
     s.ui.msg = cost.max ? '已经满级。' : cost.locked ? cost.locked + '。' : '材料不足。';
     return false;
   }
+  if (!spendAp(s, AP_COST.build, '建造')) return false;
   pay(s, cost);
   s.lv[what]++;
   if (what === 'shelter') {
@@ -714,66 +728,62 @@ export function upgrade(s, what) {
 export function repair(s) {
   if (s.hp >= HP_MAX) { s.ui.msg = '耐久已满。'; return false; }
   if (s.res.scrap < REPAIR_COST) { s.ui.msg = '废料不足，无法修补。'; return false; }
+  if (!spendAp(s, AP_COST.repair, '修补')) return false;
   s.res.scrap -= REPAIR_COST;
   s.hp = Math.min(HP_MAX, s.hp + REPAIR_HP);
   s.ui.msg = `修补完成，耐久 ${Math.round(s.hp)}。`;
   return true;
 }
 
-// ---------- time ----------
-export function isPaused(s) {
-  return !!s.ui.overlay || s.over;
-}
-
-export function tick(s, dt, rng = Math.random) {
-  if (isPaused(s)) return;
-  s.cooldown = Math.max(0, s.cooldown - dt);
-  crewTick(s, dt, rng);
-  const c = caps(s);
-  const r = rates(s);
-  s.res.power = Math.min(c.power, s.res.power + r.gen * dt);
-  const need = r.need * dt;
-  if (s.res.power >= need) {
-    s.res.power -= need;
-    s.res.water += r.full * dt;
-  } else {
-    s.res.water += r.weak * dt;
+// ---------- 行动力 ----------
+// 够就扣掉并返回 true；不够时写提示并返回 false
+export function spendAp(s, n, what = '') {
+  if (s.ap < n) {
+    s.ui.msg = `行动力不够${what ? '去' + what : ''}（需要 ${n}，剩 ${s.ap}）。结束今天就能恢复。`;
+    return false;
   }
-  s.res.water = Math.min(c.water, s.res.water);
-  s.clock += dt;
-  if (s.clock >= DAY_LEN) endDay(s);
+  s.ap -= n;
+  return true;
 }
 
-export function endDay(s) {
+export function endDay(s, rng = Math.random) {
   const day = s.day;
-  // 饮水：基础 + 天数 + 每位居民 1 份（小锅抵 1）
-  // 交出结局：城邦供水，不再消耗饮水
+  const r = rates(s);
+  // 1. 饮水：基础 + 天数 + 每位居民 1 份（小锅抵 1）。交出结局：城邦供水，不再消耗饮水
   const consume = s.ending === 'deal' ? 0 : Math.max(0, 3 + Math.floor(day / 4) + residents(s) - (s.npc.pot ? 1 : 0));
   let short = 0;
   if (s.res.water >= consume) s.res.water -= consume;
   else { short = Math.ceil(consume - s.res.water); s.res.water = 0; }
-  const thirst = short * 6;
+  const thirst = short * THIRST_HP;
   const stormy = stormNight(s, day);
   const storm = stormy ? stormDamage(s, day) : 0;
   // 结局后的自由模式：不会沉没，耐久最低 1
   s.hp = Math.max(s.ending ? 1 : 0, s.hp - thirst - storm);
-  s.day = day + 1;
-  s.clock = 0;
   // 结束一天时退出打捞/开箱，避免弹窗叠在小游戏上
   if (s.ui.salvage) finishSalvage(s, true);
   s.ui.chest = null;
-  // 商人只待一天；海域选择也收起
-  if (s.ui.screen === 'trade' || s.ui.screen === 'zones') s.ui.screen = 'home';
-  if (s.ui.screen === 'home') s.ui.focus = Math.min(s.ui.focus, 3);
   if (s.hp <= 0) {
     s.over = true;
+    s.ui.screen = 'home';
     s.ui.overlay = gameOverOverlay(s);
     return;
   }
+  // 2. 夜间产出：发电 → 造水（喝过之后才产出，白天花掉的水今晚补不回来）
+  const t = tonight(s, r);
+  s.res.power = t.have - t.powerUse;
+  const made = addWater(s, t.water);
+  const powered = t.ratio >= 1;
+  s.day = day + 1;
+  s.ap = AP_MAX;
+  // 商人只待一天；海域选择也收起
+  s.ui.screen = 'home';
+  s.ui.focus = 0;
   if (stormy) s.flags.storm = true;
-  const lines = [`饮水消耗 ${SYM.water}${consume}` + (short ? `，缺 ${short}（-${thirst}）` : '')];
-  const made = nightWork(s);
-  if (made) lines.push(made);
+  const lines = [`饮水 ${SYM.water}-${consume}` + (short ? ` 缺 ${short}（-${thirst}）` : '') + `  夜里造水 ${SYM.water}+${made}` + (powered ? '' : ` 缺电${Math.round(t.ratio * 100)}%`)];
+  const work = nightWork(s);
+  if (work) lines.push(work);
+  const back = crewReturns(s, rng);
+  if (back) lines.push(back);
   const raid = pirateNight(s, day);
   if (raid) lines.push('黑帆靠近了……');
   else if (!stormy) lines.push('平静的一夜');
@@ -788,8 +798,9 @@ export function endDay(s) {
     s.ui.report = report;
     s.ui.overlay = {
       kind: 'raid', title: '锈锚', force,
-      lines: ['「强者拥有一切。', '这话是城邦教我的。」', '「交出一半废料，或者打一场。」', `战力 ${force} · 我方防御 ${defense(s)}`],
-      action: '确认 · 打    返回 · 交',
+      lines: ['「交出一半废料，或者打一场。」', `战力 ${force} · 我方防御 ${defense(s)}`],
+      options: [defense(s) >= force ? '打（能赢）' : '打（会输：耐久-20 废料-30%）', '交保护费（废料-50%）'], pick: defense(s) >= force ? 0 : 1,
+      action: '上下选择 · 确认',
     };
     return;
   }
@@ -797,6 +808,7 @@ export function endDay(s) {
   if (stormy) beat(s, 'storm'); // 排在结算弹窗之后
   if (stormy && octopusNight(s)) beat(s, 'octopus_night');
 }
+export const THIRST_HP = 6;
 function finishReport(s, report) {
   report.lines.push(`剩余耐久 ${Math.round(s.hp)}/${HP_MAX}`);
   const nd = nextDanger(s);
@@ -804,10 +816,13 @@ function finishReport(s, report) {
     if (nd.kind === 'storm') report.lines.push(nd.dmg ? `警告：今晚风暴潮 -${nd.dmg}` : '今晚风暴潮，挡得住');
     else report.lines.push(`警告：今晚海盗，战力 ${nd.force}`);
   }
-  // 弹窗最多 5 行：合并多余的行
-  while (report.lines.length > 5) report.lines.splice(1, 2, report.lines[1] + '  ' + report.lines[2]);
+  // 弹窗最多 6 行：合并多余的行
+  while (report.lines.length > 6) report.lines.splice(1, 2, report.lines[1] + '  ' + report.lines[2]);
   s.ui.overlay = report;
   progress(s);
+  // 新一天的早上：记下重来点（不含 ui 和旧的重来点）
+  const { ui, checkpoint, ...rest } = s;
+  s.checkpoint = JSON.parse(JSON.stringify(rest));
 }
 // 被动产出：寄居蟹吊机、章鱼工坊。返回结算行（没有产出时为空）
 function nightWork(s) {
@@ -867,16 +882,35 @@ export function trade(s, i) {
 }
 const tradeGetText = (t) => (t.get.chest ? `${CHEST[t.get.chest].label}1` : costText(t.get));
 
+// 沉没：默认从当天早上重来（存档里的重来点），也可以从头开始；返回键不作答
 function gameOverOverlay(s) {
+  const cp = s.checkpoint;
   return {
     kind: 'over',
     title: '庇护所沉没',
     lines: [`你坚持到了第 ${s.day} 天。`, `庇护所最高 Lv${s.lv.shelter}。`],
-    action: '确认 · 重新开始',
+    options: cp ? [`从第 ${cp.day} 天早上重来`, '从头开始'] : ['从头开始'],
+    pick: 0,
+    action: '上下选择 · 确认',
   };
 }
+// 沉没后重来：retry=true 回到重来点（保留重来点，可以再试），否则清档从序章开始
+export function restart(s, retry) {
+  const cp = s.checkpoint;
+  const next = retry && cp ? restore(JSON.parse(JSON.stringify(cp))) : restore(null);
+  if (retry && cp) { next.checkpoint = cp; next.ui.msg = `回到第 ${next.day} 天早上。这次换个做法？`; }
+  Object.keys(s).forEach((k) => delete s[k]);
+  Object.assign(s, next);
+}
 
-// ---------- salvage ----------
+// ---------- salvage：选目标 + 见好就收 ----------
+// 海面 5 件东西，由近到远。近处 2 件看得清、必中；远处是「？」，成功率更低，但稀有物更多，也可能是巨鲨。
+// 上下选一件、确认落钩，不需要卡时机。普通收获返航时才入库：碰上巨鲨会扯断钩子并叼走本趟一半收获。
+// 剧情物（漂流者、图纸、门禁卡）总在近处，钩中立即生效，巨鲨叼不走。
+export const SLOT_ODDS = [1, 0.9, 0.75, 0.6, 0.45];
+export const NEAR_SLOTS = 2;
+const FAR_ONLY = new Set(['shark', 'jelly']);
+const STORY_KINDS = new Set(['drift', 'blueprint', 'keycard']);
 // 图纸碎片还需要时才会出现
 const needBlueprint = (s) => s.chapter >= 5 && (s.flags.blueprint || 0) < BLUEPRINTS;
 // 当前海域的掉落表：灯笼鱼信标每级让稀有物权重 +20%
@@ -886,112 +920,119 @@ function lootTable(s, zone) {
     .filter((x) => (x.kind !== 'blueprint' || needBlueprint(s)) && (x.kind !== 'keycard' || needKeycard(s)))
     .map((x) => (RARE.has(x.kind) ? { ...x, w: x.w * boost } : x));
 }
+// 远处成功率：信标每级 +5%，灯塔叔在残骸带 +5%
+function slotOdds(s, zone, i) {
+  if (i < NEAR_SLOTS) return SLOT_ODDS[i];
+  const bonus = 0.05 * s.lv.lure + (zone === 'wreck' && s.npc.hawk ? 0.05 : 0);
+  return Math.min(0.95, SLOT_ODDS[i] + bonus);
+}
+// 剧情物以外的掉落：近处没有巨鲨和水母；越远稀有物越多
+function slotTable(s, zone, i) {
+  const far = 1 + 0.25 * i;
+  return lootTable(s, zone)
+    .filter((x) => !STORY_KINDS.has(x.kind) && (i >= NEAR_SLOTS || !FAR_ONLY.has(x.kind)))
+    .map((x) => (RARE.has(x.kind) ? { ...x, w: x.w * far } : x));
+}
+export const KEY_CHANCE = 0.35; // 还缺剧情物时每趟出现的概率；第 3 趟起必出
 
 export function startSalvage(s, rng = Math.random, zone = 'near') {
-  if (s.cooldown > 0) {
-    s.ui.msg = `钩索回收中，还需 ${Math.ceil(s.cooldown)} 秒。`;
-    return false;
-  }
   const Z = ZONES[zone] && ZONES[zone].loot ? ZONES[zone] : ZONES.near;
   zone = ZONES[zone] === Z ? zone : 'near';
-  // 灯塔叔认路：残骸带物品宽 +10%
-  const w = Math.max(5, 11 - s.day * 0.3) * Z.width * (zone === 'wreck' && s.npc.hawk ? 1.1 : 1);
-  const table = lootTable(s, zone);
+  if (!spendAp(s, AP_COST[zone], Z.label)) return false;
   const items = [];
   for (let i = 0; i < 5; i++) {
-    const loot = pickWeighted(rng, table);
-    const x = i * 20 + rng() * (20 - w);
-    items.push({ id: i, kind: loot.kind, label: loot.label, tag: loot.tag, x, w, caught: false });
+    const loot = pickWeighted(rng, slotTable(s, zone, i));
+    items.push({ kind: loot.kind, label: loot.label, tag: loot.tag });
   }
-  // 剧情物：宽 ×1.5，放进一个还没放剧情物的格子
-  const free = [0, 1, 2, 3, 4];
-  const put = (it) => {
-    const slot = free.splice(randInt(rng, 0, free.length - 1), 1)[0], dw = Math.min(19, w * 1.5);
-    items[slot] = { ...it, id: slot, x: slot * 20 + rng() * (20 - dw), w: dw, caught: false };
-  };
+  // 剧情物放在最近的格子里
+  const special = [];
   if (zone === 'wreck') { s.flags.wreck = true; beat(s, 'wreck_zone'); }
   const key = KEY_ITEM[zone];
   if (key) {
     s.flags[key.trips] = (s.flags[key.trips] || 0) + 1;
-    // 防卡关：第 3 趟起，还缺剧情物就必定刷出一件
-    if (key.need(s) && s.flags[key.trips] >= 3 && !items.some((x) => x.kind === key.kind)) {
-      put({ kind: key.kind, label: key.label, tag: key.tag });
-    }
+    if (key.need(s) && (s.flags[key.trips] >= 3 || rng() < KEY_CHANCE)) special.push({ kind: key.kind, label: key.label, tag: '!' });
   }
   const who = Object.keys(DRIFT).find((k) => !s.npc[k] && DRIFT[k].when(s) && (!DRIFT[k].zone || DRIFT[k].zone === zone));
-  if (who) put({ kind: 'drift', npc: who, label: DRIFT[who].label, tag: '!' });
+  if (who) special.unshift({ kind: 'drift', npc: who, label: DRIFT[who].label, tag: '!' });
+  special.forEach((it, i) => { items[i] = it; });
+  const list = items.map((it, i) => ({
+    ...it, id: i,
+    odds: STORY_KINDS.has(it.kind) ? 1 : slotOdds(s, zone, i),
+    hidden: i >= NEAR_SLOTS && !STORY_KINDS.has(it.kind),
+    caught: false, missed: false,
+  }));
   // 气泡认路：沉城多 1 钩
   const hooks = HOOKS_PER_TRIP + (zone === 'sunken' && s.npc.bubble ? 1 : 0);
   s.flags.sailed = true;
   s.ui.screen = 'salvage';
-  s.ui.salvage = {
-    zone,
-    items,
-    cursor: 0,
-    dir: 1,
-    // 单位/秒，海面宽 100；海域加速，灯笼鱼信标减速
-    speed: Math.min(110, 55 + s.day * 4) * Z.speed * (1 - 0.1 * s.lv.lure),
-    hooks,
-    max: hooks,
-    used: 0,
-    last: '按确认落钩',
-    haul: [],
-    done: false,
-  };
+  s.ui.focus = 0;
+  s.ui.salvage = { zone, items: list, hooks, max: hooks, used: 0, last: '选一件，确认落钩', pending: [], haul: [], done: false };
   return true;
 }
 
-export function salvageStep(s, dt) {
+// 打捞界面的焦点：0..4 是海面上的东西，5 是「返航」；跳过已经钩过的
+export const salvageReturnIdx = (sv) => sv.items.length;
+function salvageMove(s, dir) {
   const sv = s.ui.salvage;
-  if (!sv || sv.done || isPaused(s)) return;
-  sv.cursor += sv.dir * sv.speed * dt;
-  if (sv.cursor >= 100) { sv.cursor = 200 - sv.cursor; sv.dir = -1; }
-  if (sv.cursor <= 0) { sv.cursor = -sv.cursor; sv.dir = 1; }
-  sv.cursor = clamp(sv.cursor, 0, 100);
+  const n = sv.items.length + 1;
+  let f = s.ui.focus;
+  for (let k = 0; k < n; k++) {
+    f = (f + dir + n) % n;
+    if (f === n - 1 || !sv.items[f].caught) break;
+  }
+  s.ui.focus = f;
 }
 
-export function dropHook(s, rng = Math.random) {
+export function dropHook(s, rng = Math.random, idx = s.ui.focus) {
   const sv = s.ui.salvage;
   if (!sv || sv.done) return null;
+  const it = sv.items[idx];
+  if (!it || it.caught) return null;
   sv.hooks--;
   sv.used++;
-  const hit = sv.items.find((it) => !it.caught && sv.cursor >= it.x && sv.cursor <= it.x + it.w);
-  if (hit && hit.kind === 'shark') {
-    // 巨鲨：扯断一钩（多扣一钩）、耐久 −5
-    hit.caught = true;
+  it.caught = true;
+  const was = it.hidden;
+  it.hidden = false;
+  if (it.kind === 'shark') {
+    // 巨鲨：多扯断一钩、耐久 −5、叼走本趟一半（向上取整）还没入库的收获
     sv.hooks = Math.max(0, sv.hooks - 1);
     s.hp = Math.max(1, s.hp - 5);
-    sv.last = '巨鲨扯断了一钩！耐久 -5';
+    const lost = Math.ceil(sv.pending.length / 2);
+    for (let i = 0; i < lost; i++) sv.pending.splice(Math.floor(rng() * sv.pending.length), 1);
+    sv.last = '巨鲨！扯断一钩，耐久 -5' + (lost ? `，叼走 ${lost} 件` : '');
     beat(s, 'shark');
-  } else if (hit && hit.kind === 'jelly') {
-    // 发光水母：本趟准星 −30%
-    hit.caught = true;
-    sv.speed *= 0.7;
-    sv.last = '发光水母：准星变慢了';
+  } else if (it.odds < 1 && rng() >= it.odds) {
+    it.missed = true;
+    sv.last = `${was ? '那东西' : it.label}脱钩沉下去了`;
+  } else if (it.kind === 'jelly') {
+    // 发光水母：照亮海面，剩下的「？」都看清了
+    sv.items.forEach((x) => { x.hidden = false; });
+    sv.last = '发光水母照亮了海面';
     beat(s, 'glow');
-  } else if (hit && hit.kind === 'letter') {
+  } else if (it.kind === 'letter') {
     // 漂流瓶：消息栏显示瓶中的话，返航汇总只记「漂流瓶」
-    hit.caught = true;
     const n = s.flags.letters || 0;
     s.flags.letters = n + 1;
     sv.last = `漂流瓶：「${LETTERS[n % LETTERS.length]}」`;
     sv.haul.push('漂流瓶');
-  } else if (hit) {
-    hit.caught = true;
-    const text = hit.kind === 'drift' ? rescue(s, hit.npc) : applyLoot(s, hit.kind, rng);
-    sv.last = `捞到${hit.label}：${text}`;
+  } else if (STORY_KINDS.has(it.kind)) {
+    const text = it.kind === 'drift' ? rescue(s, it.npc) : storyLoot(s, it.kind);
+    sv.last = `捞到${it.label}：${text}`;
     sv.haul.push(text);
   } else {
-    sv.last = '落空了';
+    const g = rollLoot(s, it.kind, rng, sv.zone);
+    sv.pending.push(g);
+    sv.last = `捞到${it.label}：${g.text}`;
   }
   if (sv.hooks <= 0) {
     sv.done = true;
-    sv.last += '。钩索用完，按确认返航';
+    sv.last += '。钩索用完';
+    s.ui.focus = salvageReturnIdx(sv);
+  } else if (sv.items[s.ui.focus] && sv.items[s.ui.focus].caught) {
+    salvageMove(s, 1);
   }
-  return hit ? hit.kind : null;
+  return it.missed ? null : it.kind;
 }
-
-const zoneNow = (s) => (s.ui.salvage ? s.ui.salvage.zone : 'near');
 
 function addWater(s, n) {
   const before = s.res.water;
@@ -999,58 +1040,66 @@ function addWater(s, n) {
   return Math.round(s.res.water - before);
 }
 
-function applyLoot(s, kind, rng, zone = zoneNow(s)) {
+// 普通掉落：先掷出数量（返航时才入库）。{ res, chest, text, beat }
+function rollLoot(s, kind, rng, zone = 'near') {
   switch (kind) {
     case 'scrap': {
       // 远海的废料块更大：残骸带 +3，沉城 +5
-      const n = randInt(rng, 2, 4) + Math.floor(s.day / 3) + ({ wreck: 3, sunken: 5 }[zone] || 0);
-      s.res.scrap += n;
-      return `${SYM.scrap}+${n}`;
+      const n = randInt(rng, 3, 5) + Math.floor(s.day / 3) + ({ wreck: 3, sunken: 5 }[zone] || 0);
+      return { res: { scrap: n }, text: `${SYM.scrap}+${n}` };
     }
     case 'bottle': {
-      const n = addWater(s, randInt(rng, 2, 4));
-      return n > 0 ? `${SYM.water}+${n}` : '淡水已满';
+      const n = randInt(rng, 2, 4);
+      return { res: { water: n }, text: `${SYM.water}+${n}` };
     }
-    case 'part':
-      s.res.parts += 1;
-      beat(s, 'part');
-      return `${SYM.parts}+1`;
-    case 'eel':
-      s.res.eels += 1;
-      beat(s, 'eel');
-      return `${SYM.eels}+1`;
+    case 'part': return { res: { parts: 1 }, text: `${SYM.parts}+1`, beat: 'part' };
+    case 'eel': return { res: { eels: 1 }, text: `${SYM.eels}+1`, beat: 'eel' };
     case 'chest': {
       const r = rng();
       // 沉城只有铁箱和金箱
       const k = zone === 'sunken' ? (r < 0.75 ? 'iron' : 'gold') : r < 0.7 ? 'wood' : r < 0.95 ? 'iron' : 'gold';
-      s.chests.push(k);
-      return `${CHEST[k].label}+1`;
+      return { chest: k, text: `${CHEST[k].label}+1` };
     }
-    case 'blueprint': {
-      if (!needBlueprint(s)) return '一张烂纸';
-      const n = (s.flags.blueprint || 0) + 1;
-      s.flags.blueprint = n;
-      beat(s, `blueprint${n}`);
-      return `图纸 ${n}/${BLUEPRINTS}`;
-    }
-    case 'keycard':
-      if (!needKeycard(s)) return '一张旧卡片';
-      s.flags.keycard = true;
-      beat(s, 'keycard');
-      return '门禁卡';
     default:
-      return '一团海藻';
+      return { text: '一团海藻' };
   }
+}
+// 入库，返回实际到手的文本（淡水可能被上限截掉）
+function applyGain(s, g) {
+  if (g.chest) s.chests.push(g.chest);
+  let text = g.text;
+  for (const [k, v] of Object.entries(g.res || {})) {
+    if (k === 'water') { const n = addWater(s, v); text = n > 0 ? `${SYM.water}+${n}` : '淡水已满'; }
+    else s.res[k] += v;
+  }
+  if (g.beat) beat(s, g.beat);
+  return text;
+}
+function storyLoot(s, kind) {
+  if (kind === 'blueprint') {
+    if (!needBlueprint(s)) return '一张烂纸';
+    const n = (s.flags.blueprint || 0) + 1;
+    s.flags.blueprint = n;
+    beat(s, `blueprint${n}`);
+    return `图纸 ${n}/${BLUEPRINTS}`;
+  }
+  if (!needKeycard(s)) return '一张旧卡片';
+  s.flags.keycard = true;
+  beat(s, 'keycard');
+  return '门禁卡';
 }
 
 export function finishSalvage(s, silent = false) {
   const sv = s.ui.salvage;
   if (!sv) return;
-  if (sv.used > 0) s.cooldown = SALVAGE_COOLDOWN;
-  if (!silent) s.ui.msg = sv.haul.length ? `返航：${sv.haul.join('  ')}` : '这趟空手而归。';
+  // 先清掉打捞界面，入库时触发的剧情（第一枚滤芯等）才能弹出
   s.ui.salvage = null;
   s.ui.screen = 'home';
   s.ui.focus = 0;
+  const got = sv.pending.map((g) => applyGain(s, g)).filter((t) => t !== '一团海藻');
+  const all = [mergeTexts(got), ...sv.haul].filter(Boolean);
+  if (!silent) s.ui.msg = all.length ? `返航：${all.join('  ')}` : '这趟空手而归。';
+  flushStory(s);
 }
 
 // ---------- chests ----------
@@ -1078,52 +1127,56 @@ export function rollChest(s, kind, rng = Math.random) {
   return out.join('  ') || '空箱';
 }
 
+// 开箱：确认一次就开（花 1 行动力），再确认收下
 function chestPress(s, rng) {
   const ui = s.ui;
-  if (ui.chest) {
-    if (ui.chest.reward) { ui.chest = null; ui.focus = clamp(ui.focus, 0, Math.max(0, s.chests.length - 1)); return; }
-    ui.chest.hits++;
-    if (ui.chest.hits >= ui.chest.need) {
-      s.chests.splice(ui.chest.idx, 1);
-      ui.chest.reward = rollChest(s, ui.chest.kind, rng);
-      ui.msg = `${CHEST[ui.chest.kind].label}：${ui.chest.reward}`;
-    }
-    return;
-  }
+  if (ui.chest) { ui.chest = null; ui.focus = clamp(ui.focus, 0, Math.max(0, s.chests.length - 1)); return; }
   if (!s.chests.length) { ui.msg = '没有宝箱。出海打捞看看？'; return; }
   const idx = clamp(ui.focus, 0, s.chests.length - 1);
-  const kind = s.chests[idx];
-  ui.chest = { idx, kind, need: CHEST[kind].locks, hits: 0, reward: null };
+  if (!spendAp(s, AP_COST.chest, '开箱')) return;
+  const kind = s.chests.splice(idx, 1)[0];
+  const reward = rollChest(s, kind, rng);
+  ui.chest = { kind, reward };
+  ui.msg = `${CHEST[kind].label}：${reward}`;
 }
 
 // ---------- input ----------
 // key: 'up' | 'down' | 'enter' | 'back'。返回 false 表示未处理（交给系统，如主界面返回=退出）。
 export function press(s, key, rng = Math.random) {
+  const ap = s.ap;
   const handled = handleKey(s, key, rng);
   progress(s);
   flushStory(s);
+  if (ap > 0 && s.ap === 0) s.ui.restHint = true;
+  if (s.ui.screen === 'home') {
+    const menu = homeMenu(s);
+    if (s.ui.restHint && !s.ui.overlay) { s.ui.restHint = false; s.ui.focus = menu.indexOf('rest'); }
+    s.ui.focus = clamp(s.ui.focus, 0, menu.length - 1); // 修补项会在耐久满后消失
+  }
   return handled;
 }
 
 function handleKey(s, key, rng) {
   const ui = s.ui;
   if (ui.overlay) {
-    if (key !== 'enter' && key !== 'back') return true;
-    if (ui.overlay.kind === 'over') {
-      const fresh = newGame();
-      Object.keys(s).forEach((k) => delete s[k]);
-      Object.assign(s, fresh);
+    const o = ui.overlay;
+    // 带选项的弹窗（沉没、海盗、终章）：上下选、确认生效，返回键吞掉不作答
+    if (o.options) {
+      if (key === 'up' || key === 'down') o.pick = (o.pick + (key === 'down' ? 1 : -1) + o.options.length) % o.options.length;
+      if (key !== 'enter') return true;
+      if (o.kind === 'over') restart(s, o.pick === 0 && !!s.checkpoint);
+      else if (o.kind === 'raid') resolveRaid(s, o.pick === 0);
+      else if (o.kind === 'choice') chooseEnding(s, o.pick === 0);
       return true;
     }
-    if (ui.overlay.kind === 'raid') { resolveRaid(s, key === 'enter'); return true; }
-    if (ui.overlay.kind === 'choice') { chooseEnding(s, key === 'enter'); return true; }
-    ui.overlay = null;
+    if (key === 'enter' || key === 'back') ui.overlay = null;
     return true;
   }
 
   const listLen = menuLength(s);
   if (key === 'up' || key === 'down') {
-    if (ui.screen === 'salvage' || ui.chest) return true;
+    if (ui.screen === 'salvage') { if (ui.salvage && !ui.salvage.done) salvageMove(s, key === 'down' ? 1 : -1); return true; }
+    if (ui.chest) return true;
     if (listLen > 0) ui.focus = (ui.focus + (key === 'down' ? 1 : -1) + listLen) % listLen;
     return true;
   }
@@ -1131,7 +1184,6 @@ function handleKey(s, key, rng) {
   if (key === 'back') {
     if (ui.screen === 'home') return false;
     if (ui.screen === 'salvage') { finishSalvage(s); return true; }
-    if (ui.chest && !ui.chest.reward) { ui.chest = null; return true; }
     if (ui.screen === 'mate') { ui.screen = 'crew'; ui.focus = Math.max(0, crewOf(s).indexOf(ui.mate)); return true; }
     ui.chest = null;
     const from = ui.screen;
@@ -1146,13 +1198,14 @@ function handleKey(s, key, rng) {
       const item = homeMenu(s)[ui.focus];
       if (item === 'salvage') {
         // 解锁了多个海域：先选海域
-        if (zonesOf(s).length > 1 && s.cooldown <= 0) { ui.screen = 'zones'; ui.focus = 0; }
+        if (zonesOf(s).length > 1) { ui.screen = 'zones'; ui.focus = 0; }
         else startSalvage(s, rng);
       } else if (item === 'build') { ui.screen = 'build'; ui.focus = 0; }
       else if (item === 'chests') { ui.screen = 'chests'; ui.focus = 0; ui.chest = null; }
       else if (item === 'repair') repair(s);
       else if (item === 'trader') { ui.screen = 'trade'; ui.focus = 0; }
       else if (item === 'crew') { ui.screen = 'crew'; ui.focus = 0; }
+      else if (item === 'rest') endDay(s, rng);
       return true;
     }
     case 'crew': {
@@ -1169,7 +1222,7 @@ function handleKey(s, key, rng) {
     case 'zones': {
       const z = zonesOf(s)[ui.focus];
       if (z === 'lab') diveLab(s);
-      else if (!startSalvage(s, rng, z)) { ui.screen = 'home'; ui.focus = 0; }
+      else startSalvage(s, rng, z); // 行动力不够时留在海域列表，消息栏提示
       return true;
     }
     case 'trade':
@@ -1183,7 +1236,7 @@ function handleKey(s, key, rng) {
       chestPress(s, rng);
       return true;
     case 'salvage':
-      if (ui.salvage && ui.salvage.done) finishSalvage(s);
+      if (!ui.salvage || ui.salvage.done || ui.focus === salvageReturnIdx(ui.salvage)) finishSalvage(s);
       else dropHook(s, rng);
       return true;
   }
@@ -1199,20 +1252,21 @@ function menuLength(s) {
     case 'chests': return s.chests.length;
     case 'crew': return crewOf(s).length;
     case 'mate': return mateMenu(s).length;
+    case 'salvage': return s.ui.salvage ? s.ui.salvage.items.length + 1 : 0;
     default: return 0;
   }
 }
 
 // ---------- view model ----------
 const fmt = (n) => String(Math.floor(n + 1e-9));
-const rate = (n) => (n >= 0 ? '+' : '') + n.toFixed(2);
+const DIST = ['近', '近', '中', '远', '远'];
 
 export function view(s) {
   const ui = s.ui;
   const c = caps(s);
   const r = rates(s);
-  const powered = s.res.power >= 0.01 || r.gen >= r.need;
-  const waterRate = powered ? r.full : r.weak;
+  const t = tonight(s, r);
+  const powered = t.ratio >= 1;
   const res = [
     { key: 'scrap', sym: SYM.scrap, label: RES_LABEL.scrap, val: fmt(s.res.scrap), cap: '' },
     { key: 'water', sym: SYM.water, label: RES_LABEL.water, val: fmt(s.res.water), cap: '/' + c.water },
@@ -1232,8 +1286,8 @@ export function view(s) {
   const vm = {
     screen: ui.screen,
     day: s.day,
-    timeLeft: Math.max(0, Math.ceil(DAY_LEN - s.clock)),
-    dayPct: Math.round((s.clock / DAY_LEN) * 100),
+    ap: s.ap,
+    apPips: Array.from({ length: AP_MAX }, (_, i) => ({ i, full: i < s.ap })),
     hp: Math.round(s.hp),
     hpPct: Math.round((s.hp / HP_MAX) * 100),
     hpLow: s.hp <= 30,
@@ -1248,18 +1302,17 @@ export function view(s) {
     list: ['build', 'trade', 'zones', 'crew', 'mate'].includes(ui.screen),
     residents: residents(s),
     goal: null,
-    prodText: `${SYM.water}${rate(waterRate)}/s  ${SYM.power}${rate(r.gen - (powered ? r.need : 0))}/s`,
-    powerText: powered ? '过滤器 满速' : '过滤器 缺电 30%',
+    prodText: `夜里 ${SYM.water}+${t.water}  ${SYM.power}+${r.gen}`,
+    powerText: powered ? '过滤器 满速' : `今晚缺电 · 过滤器 ${Math.round(t.ratio * 100)}%`,
     msg: ui.msg,
     menu: [],
     salvage: null,
     chests: [],
     chest: null,
-    overlay: ui.overlay ? { ...ui.overlay, art: overlayArt(ui.overlay) } : null,
+    overlay: ui.overlay ? overlayVm(ui.overlay) : null,
   };
 
   if (ui.screen === 'home') {
-    const cd = Math.ceil(s.cooldown);
     vm.title = `庇护所 Lv${s.lv.shelter} · ${eraOf(s.lv.shelter)}`;
     const ch = CHAPTERS[s.chapter];
     const goals = ch.goals.map(([text, done]) => ({ text: goalText(s, text), done: done(s) }));
@@ -1268,27 +1321,29 @@ export function view(s) {
       ? { chapter: ch.title, dots: '', text: ENDINGS[s.ending].goal }
       : { chapter: ch.title, dots: goals.map((g) => (g.done ? '●' : '○')).join(''), text: next ? next.text : '已完成' };
     const zones = zonesOf(s).filter((z) => ZONES[z].loot).length;
+    const tired = (n) => s.ap < n;
     const items = {
-      salvage: { label: '出海打捞', sub: cd > 0 ? `回收中 ${cd}s` : zones > 1 ? `${zones} 片海域` : `${HOOKS_PER_TRIP} 钩`, off: cd > 0 },
-      build: { label: '建造与升级', sub: anyUpgradable(s) ? '可升级' : '', off: false },
-      chests: { label: '宝箱', sub: s.chests.length ? `×${s.chests.length}` : '无', off: s.chests.length === 0 },
-      repair: { label: '修补庇护所', sub: `${SYM.scrap}${REPAIR_COST} → +${REPAIR_HP}`, off: s.hp >= HP_MAX || s.res.scrap < REPAIR_COST },
-      trader: { label: '秤砣', sub: '今天在', off: false },
+      salvage: { label: '出海打捞', sub: zones > 1 ? `${zones} 片海域 · 行动${AP_COST.near}+` : `行动 ${AP_COST.near}`, off: tired(AP_COST.near) },
+      build: { label: '建造与升级', sub: anyUpgradable(s) ? `可升级 · 行动 ${AP_COST.build}` : '', off: tired(AP_COST.build) },
+      chests: { label: '宝箱', sub: s.chests.length ? `×${s.chests.length} · 行动 ${AP_COST.chest}` : '无', off: s.chests.length === 0 || tired(AP_COST.chest) },
+      repair: { label: '修补庇护所', sub: `${SYM.scrap}${REPAIR_COST} → +${REPAIR_HP} · 行动 ${AP_COST.repair}`, off: s.res.scrap < REPAIR_COST || tired(AP_COST.repair) },
+      trader: { label: '秤砣', sub: '今天在 · 不花行动', off: false },
       crew: { label: '居民', sub: crewSub(s), off: false },
+      rest: { label: '结束今天', sub: s.ap ? `还剩 ${s.ap} 行动` : '行动力用完', off: false },
     };
     vm.menu = homeMenu(s).map((k) => ({ ...items[k], art: art(HOME_ART[k]) }));
-    vm.tight = vm.menu.length > 5; // 居民 + 秤砣同时出现时压低行高
+    vm.tight = vm.menu.length > 5; // 居民、修补、秤砣同时出现时压低行高
   } else if (ui.screen === 'build') {
     vm.title = '建造与升级';
     const desc = {
       shelter: `Lv${s.lv.shelter} · 淡水上限 ${c.water} · 防御 ${12 * s.lv.shelter}`,
       armor: `Lv${s.lv.armor} · 风暴防御 +${10 * s.lv.armor}`,
-      filter: `Lv${s.lv.filter} · ${SYM.water}${r.full.toFixed(2)}/s · 耗电 ${r.need.toFixed(2)}/s`,
-      eel: `Lv${s.lv.eel} · ${SYM.power}${r.gen.toFixed(2)}/s · 待安置 ${SYM.eels}${s.res.eels}`,
+      filter: `Lv${s.lv.filter} · 每晚 ${SYM.water}+${r.full} · 耗电 ${r.need}`,
+      eel: `Lv${s.lv.eel} · 每晚 ${SYM.power}+${r.gen} · 待安置 ${SYM.eels}${s.res.eels}`,
       octo: `Lv${s.lv.octo} · 每晚 ${SYM.scrap}8→${SYM.parts}1 ×${s.lv.octo}`,
       crab: `Lv${s.lv.crab} · 每晚 ${SYM.scrap}+${3 * s.lv.crab}`,
       turtle: `Lv${s.lv.turtle} · ${s.lv.turtle >= 2 ? '可去沉城' : s.lv.turtle ? '可去残骸带 · Lv2 沉城' : '解锁残骸带'}`,
-      lure: `Lv${s.lv.lure} · 准星 −${10 * s.lv.lure}% · 稀有 +${20 * s.lv.lure}%`,
+      lure: `Lv${s.lv.lure} · 远处 +${5 * s.lv.lure}% · 稀有 +${20 * s.lv.lure}%`,
     };
     const names = { shelter: '庇护所', filter: '海水过滤器', eel: '电鳗发电机', armor: '藤壶装甲', octo: '章鱼工坊', crab: '寄居蟹吊机', turtle: '海龟拖船', lure: '灯笼鱼信标' };
     vm.menu = buildMenu(s).map((k) => {
@@ -1300,8 +1355,8 @@ export function view(s) {
         label: names[k],
         sub: desc[k],
         cost: costText(cost),
-        state: cost.max ? '满级' : cost.locked ? '锁定' : ok ? '可升级' : '缺料',
-        off: !ok,
+        state: cost.max ? '满级' : cost.locked ? '锁定' : !ok ? '缺料' : s.ap < AP_COST.build ? '没力气' : '可升级',
+        off: !ok || s.ap < AP_COST.build,
       };
     });
   } else if (ui.screen === 'zones') {
@@ -1311,7 +1366,7 @@ export function view(s) {
       cost: z === 'wreck' && needBlueprint(s) ? `图纸 ${s.flags.blueprint || 0}/${BLUEPRINTS}`
         : z === 'sunken' && s.chapter >= 7 && !s.npc.bubble ? '有人求救'
         : z === 'sunken' && needKeycard(s) ? '门禁卡 0/1' : '',
-      state: z === 'near' ? '安全' : z === 'lab' ? '下潜' : '危险', off: false,
+      state: `行动 ${AP_COST[z]}`, off: s.ap < AP_COST[z],
     }));
   } else if (ui.screen === 'trade') {
     vm.title = '秤砣 · 今天的货';
@@ -1333,7 +1388,7 @@ export function view(s) {
         art: art(CREW[k].art), artDim: !!away, label: NPC[k],
         sub: `擅长${ZONES[CREW[k].zone].label}` + (s.flags[`talked_${k}`] === s.day ? '' : ' · 想聊聊'),
         cost: hearts(bondOf(s, k)),
-        state: away ? `${ZONES[away.zone].label} ${Math.ceil(away.left)}s` : '空闲', off: !!away,
+        state: away ? `${ZONES[away.zone].label} · 明早回` : '在船上', off: !!away,
       };
     });
   } else if (ui.screen === 'mate') {
@@ -1348,33 +1403,38 @@ export function view(s) {
       const ok = !away && s.res.water >= DISPATCH_WATER;
       return {
         art: art(ZONE_ART[z]), artDim: false, label: `派遣 · ${ZONES[z].label}`,
-        sub: `${DISPATCH_SECS}s 后带回 ${dispatchSize(s, k, z)} 件` + (CREW[k].zone === z ? ' · 擅长' : ''),
+        sub: `不花行动 · 明早带回 ${dispatchSize(s, k, z)} 件` + (CREW[k].zone === z ? ' · 擅长' : ''),
         cost: `${SYM.water}${DISPATCH_WATER}`, state: away ? '出海中' : ok ? '可派' : '缺水', off: !ok,
       };
     });
   } else if (ui.screen === 'chests') {
     vm.title = `宝箱 ×${s.chests.length}`;
-    vm.menu = s.chests.map((k) => ({ art: art(`chest-${k}-closed`), label: CHEST[k].label, sub: `${CHEST[k].locks} 道锁`, off: false }));
+    vm.menu = s.chests.map((k) => ({ art: art(`chest-${k}-closed`), label: CHEST[k].label, sub: `行动 ${AP_COST.chest}`, off: s.ap < AP_COST.chest }));
     if (ui.chest) {
       const ch = ui.chest;
-      const stage = ch.reward ? 'open' : ch.hits > 0 ? 'ajar' : 'closed';
-      vm.chest = {
-        art: art(`chest-${ch.kind}-${stage}`),
-        label: CHEST[ch.kind].label,
-        locks: Array.from({ length: ch.need }, (_, i) => ({ i, open: i < ch.hits })),
-        reward: ch.reward,
-        hint: ch.reward ? '确认 · 收下' : `连按确认撬锁 ${ch.hits}/${ch.need}`,
-      };
+      vm.chest = { art: art(`chest-${ch.kind}-open`), label: CHEST[ch.kind].label, reward: ch.reward, hint: '确认 · 收下' };
     }
   } else if (ui.screen === 'salvage' && ui.salvage) {
     const sv = ui.salvage;
-    vm.title = '出海打捞';
+    vm.title = `出海 · ${ZONES[sv.zone].label}`;
+    const ret = salvageReturnIdx(sv);
     vm.salvage = {
-      cursor: Math.round(sv.cursor * 10) / 10,
       hooks: Array.from({ length: sv.max || HOOKS_PER_TRIP }, (_, i) => ({ i, left: i < sv.hooks })),
-      items: sv.items.map((it) => ({ ...it, art: art(LOOT_ART[it.kind]), x: Math.round(it.x * 10) / 10, w: Math.round(it.w * 10) / 10 })),
+      items: sv.items.map((it, i) => ({
+        id: it.id,
+        art: it.hidden || it.caught ? '' : art(LOOT_ART[it.kind]),
+        tag: it.hidden ? '？' : it.caught ? (it.missed ? '×' : '✓') : it.tag,
+        label: it.hidden ? '看不清' : it.label,
+        dist: DIST[i] || '远',
+        pct: it.caught ? '' : `${Math.round(it.odds * 100)}%`,
+        caught: it.caught,
+        focused: !sv.done && ui.focus === i,
+      })),
+      back: { focused: sv.done || ui.focus === ret },
+      pending: sv.pending.length ? `船上 ${sv.pending.length} 件` : '',
       last: sv.last,
       done: sv.done,
+      hint: sv.done ? '确认 · 返航' : ui.focus === ret ? '确认 · 返航（收获入库）' : '确认 · 落钩    返回 · 返航',
     };
   }
   vm.menu = vm.menu.map((m, i) => ({ ...m, i, focused: i === ui.focus && !ui.chest }));
@@ -1388,9 +1448,15 @@ export function view(s) {
   return vm;
 }
 
+function overlayVm(o) {
+  const { options, pick, ...rest } = o;
+  const vm = { ...rest, art: overlayArt(o), opts: null };
+  if (options) vm.opts = options.map((label, i) => ({ i, label, focused: i === pick }));
+  return vm;
+}
 function crewSub(s) {
   const away = Object.keys(s.crew).length;
-  return away ? `${away} 人出海` : `${residents(s)} 人在船`;
+  return away ? `${away} 人出海 · 明早回` : `${residents(s)} 人在船`;
 }
 function anyUpgradable(s) {
   return buildMenu(s).some((k) => affordable(s, costOf(s, k)));

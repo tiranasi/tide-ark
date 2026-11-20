@@ -1,6 +1,6 @@
 // 简化版 AIUI 运行时，仅用于浏览器预览：
 // 读取 .ink 文件 → 注入 <style> → 以 ES 模块加载 <script setup> → 用 ink:if/elif/else/for 渲染 <page> 模板。
-// 支持 Page 生命周期 onLoad/onShow/onHide/onUnload、setData（含点路径）、onKeyDown/onKeyUp、wx 存储。
+// 支持 Page 生命周期 onLoad/onShow/onHide/onUnload（页面可以不实现其中一些）、setData（含点路径）、onKeyDown/onKeyUp、wx 存储。
 
 import * as G from '../agent/core/game.js';
 import { SCENES } from './scenes.js';
@@ -173,10 +173,9 @@ async function mount() {
   page.onLoad && page.onLoad({});
   page.onShow && page.onShow();
   if (SCENE) {
-    // 截图模式：换成固定场景，冻结时间，不写存档
+    // 截图模式：换成固定场景，不写存档
     const found = SCENES.find(([name]) => name === SCENE);
     if (!found) { log('没有这个场景：' + SCENE); return; }
-    page.stopLoops();
     page.save = () => {};
     page.state = found[2](G);
     page.render();
@@ -224,9 +223,9 @@ document.getElementById('env').addEventListener('click', (e) => { frame.classLis
 document.getElementById('fast').addEventListener('click', (e) => {
   e.target.blur();
   if (!page || !page.state) return;
-  G.tick(page.state, 10);
+  page.state.ap = G.AP_MAX; // 调试：补满行动力
   page.render();
-  log('快进 10 秒');
+  log('行动力已补满');
 });
 document.getElementById('reset').addEventListener('click', (e) => {
   e.target.blur();

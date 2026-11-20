@@ -13,9 +13,6 @@ const KEY_MAP = { ArrowUp: 'up', ArrowDown: 'down', Enter: 'enter', Backspace: '
 const LLM_POLL_MS = 60;
 const LLM_TIMEOUT_MS = 12000;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-const TICK_MS = 1000;
-const SALVAGE_MS = 50;
-const SAVE_EVERY = 5;
 
 export default {
   data: {
@@ -25,7 +22,6 @@ export default {
   onLoad() {
     this.state = G.restore(this.loadSave());
     this.handled = {};
-    this.saveCountdown = SAVE_EVERY;
     this.render();
     // 只记日志，便于真机调试时确认大模型是否可用
     Promise.resolve()
@@ -34,17 +30,14 @@ export default {
       .catch((err) => console.warn('[tideark] llm availability failed', err));
   },
 
-  onShow() {
-    this.startLoops();
-  },
-
+  // 回合制：没有计时器，只在按键处理后渲染和存档
   onHide() {
-    this.stopLoops();
     this.save();
   },
 
   onUnload() {
-    this.stopLoops();
+    // 打捞中的收获返航时才入库：关页面前先收回来，免得白花行动力
+    if (this.state) G.finishSalvage(this.state, true);
     this.save();
   },
 
@@ -67,56 +60,8 @@ export default {
     }
   },
 
-  // ---------- loops ----------
-  startLoops() {
-    this.stopLoops();
-    this.lastTick = Date.now();
-    this.tickTimer = setInterval(() => this.onTick(), TICK_MS);
-    this.syncSalvageLoop();
-  },
-
-  stopLoops() {
-    if (this.tickTimer) { clearInterval(this.tickTimer); this.tickTimer = null; }
-    this.stopSalvageLoop();
-  },
-
-  onTick() {
-    const now = Date.now();
-    const dt = Math.min(2, (now - this.lastTick) / 1000);
-    this.lastTick = now;
-    G.tick(this.state, dt);
-    if (--this.saveCountdown <= 0) { this.saveCountdown = SAVE_EVERY; this.save(); }
-    this.render();
-  },
-
-  syncSalvageLoop() {
-    const sv = this.state && this.state.ui.salvage;
-    const active = !!(sv && !sv.done && !G.isPaused(this.state));
-    if (active && !this.salvageTimer && this.tickTimer) {
-      this.lastStep = Date.now();
-      this.salvageTimer = setInterval(() => this.onSalvageStep(), SALVAGE_MS);
-    } else if (!active) {
-      this.stopSalvageLoop();
-    }
-  },
-
-  stopSalvageLoop() {
-    if (this.salvageTimer) { clearInterval(this.salvageTimer); this.salvageTimer = null; }
-  },
-
-  onSalvageStep() {
-    const now = Date.now();
-    const dt = Math.min(0.2, (now - this.lastStep) / 1000);
-    this.lastStep = now;
-    G.salvageStep(this.state, dt);
-    const sv = this.state.ui.salvage;
-    if (sv) this.setData({ 'vm.salvage.cursor': Math.round(sv.cursor * 10) / 10 });
-    else this.stopSalvageLoop();
-  },
-
   render() {
     this.setData({ vm: G.view(this.state) });
-    this.syncSalvageLoop();
     this.voice();
   },
 
@@ -125,7 +70,7 @@ export default {
   // 任何一步不可用（预览、没网、配额用完）都静默退回固定台词。
   voice() {
     const o = this.state && this.state.ui.overlay;
-    if (!o || (o.kind !== 'crew' && o.kind !== 'talk') || o.voiced) return;
+    if (!o || o.kind !== 'talk' || o.voiced) return;
     o.voiced = true;
     const p = G.talkPrompt(this.state, o);
     this.rewrite(o, p).then((text) => this.speak(text, p.voice));
@@ -214,11 +159,13 @@ export default {
 
 <page>
   <view class="root">
-    <!-- 顶栏：天数 / 时间 / 耐久 -->
+    <!-- 顶栏：天数 / 行动力 / 耐久 -->
     <view class="topbar">
       <text class="day">第 {{vm.day}} 天</text>
-      <view class="daytrack"><view class="dayfill" style="width: {{vm.dayPct}}%;"></view></view>
-      <text class="clock">{{vm.timeLeft}}s</text>
+      <view class="aptrack">
+        <text class="ap-label">行动</text>
+        <view class="pip {{item.full ? 'pip-full' : ''}}" ink:for="{{vm.apPips}}" ink:key="i"></view>
+      </view>
       <text class="hp {{vm.hpLow ? 'hp-low' : ''}}">{{vm.hpLow ? '▲ ' : ''}}耐久 {{vm.hp}}</text>
     </view>
 
@@ -290,9 +237,6 @@ export default {
       <view class="chest-open" ink:if="{{vm.chest}}">
         <image class="chest-art" ink:if="{{vm.chest.art}}" src="{{vm.chest.art}}" mode="aspectFit" />
         <text class="chest-name">{{vm.chest.art ? '' : '□ '}}{{vm.chest.label}}</text>
-        <view class="locks">
-          <text class="lock {{item.open ? 'lock-open' : ''}}" ink:for="{{vm.chest.locks}}" ink:key="i">{{item.open ? '○' : '●'}}</text>
-        </view>
         <text class="reward" ink:if="{{vm.chest.reward}}">{{vm.chest.reward}}</text>
         <text class="caption">{{vm.chest.hint}}</text>
       </view>
@@ -307,27 +251,31 @@ export default {
       </view>
     </view>
 
-    <!-- 打捞 -->
+    <!-- 打捞：上下选一件，确认落钩；最后一格是返航 -->
     <view class="body body-col" ink:elif="{{vm.screen === 'salvage' && vm.salvage}}">
       <view class="sv-head">
         <text class="label">{{vm.title}}</text>
+        <text class="caption">{{vm.salvage.pending}}</text>
         <view class="hooks">
           <text class="hook {{item.left ? '' : 'hook-used'}}" ink:for="{{vm.salvage.hooks}}" ink:key="i">{{item.left ? '↓' : '·'}}</text>
         </view>
       </view>
       <view class="sea">
-        <view class="cursor" style="left: {{vm.salvage.cursor}}%;">
-          <text class="cursor-head">▼</text>
-          <view class="cursor-line"></view>
+        <view class="card {{item.focused ? 'card-focus' : ''}} {{item.caught ? 'card-caught' : ''}}" ink:for="{{vm.salvage.items}}" ink:key="id">
+          <text class="card-dist">{{item.dist}}</text>
+          <image class="card-art" ink:if="{{item.art}}" src="{{item.art}}" mode="aspectFit" />
+          <text class="card-tag" ink:else>{{item.tag}}</text>
+          <text class="card-label">{{item.label}}</text>
+          <text class="card-pct">{{item.pct}}</text>
         </view>
-        <view class="item {{item.caught ? 'item-caught' : ''}}" ink:for="{{vm.salvage.items}}" ink:key="id" style="left: {{item.x}}%; width: {{item.w}}%;">
-          <image class="item-art" ink:if="{{item.art && !item.caught}}" src="{{item.art}}" mode="aspectFit" />
-          <text class="item-tag" ink:else>{{item.caught ? '·' : item.tag}}</text>
-        </view>
-        <text class="sea-waves">≈ ≈ ≈ ≈ ≈ ≈ ≈ ≈ ≈ ≈ ≈ ≈ ≈ ≈ ≈ ≈ ≈ ≈ ≈ ≈</text>
+      </view>
+      <view class="sv-back {{vm.salvage.back.focused ? 'sv-back-focus' : ''}}">
+        <text class="row-mark">{{vm.salvage.back.focused ? '›' : ' '}}</text>
+        <text class="row-label">返航</text>
+        <text class="row-sub">收获入库</text>
       </view>
       <text class="sv-last">{{vm.salvage.last}}</text>
-      <text class="caption">{{vm.salvage.done ? '确认 · 返航' : '确认 · 落钩    返回 · 提前返航'}}</text>
+      <text class="caption">{{vm.salvage.hint}}</text>
     </view>
 
     <!-- 消息栏 -->
@@ -342,6 +290,12 @@ export default {
         <view class="dialog-text">
           <text class="dialog-title">{{vm.overlay.kind === 'over' ? '▲ ' : ''}}{{vm.overlay.title}}</text>
           <text class="dialog-line" ink:for="{{vm.overlay.lines}}" ink:key="index">{{item}}</text>
+          <view class="opts" ink:if="{{vm.overlay.opts}}">
+            <view class="opt {{item.focused ? 'opt-focus' : ''}}" ink:for="{{vm.overlay.opts}}" ink:key="i">
+              <text class="row-mark">{{item.focused ? '›' : ' '}}</text>
+              <text class="opt-label">{{item.label}}</text>
+            </view>
+          </view>
           <text class="dialog-action">{{vm.overlay.action}}</text>
         </view>
       </view>
@@ -372,9 +326,10 @@ export default {
 
 .topbar { display: flex; flex-direction: row; align-items: center; gap: 8px; height: 20px; }
 .day { color: var(--g100); font-size: 14px; font-weight: 500; }
-.daytrack { flex: 1; height: 1px; background-color: var(--g24); }
-.dayfill { height: 1px; background-color: var(--g72); }
-.clock { font-family: monospace; font-size: 11px; color: var(--g48); }
+.aptrack { flex: 1; display: flex; flex-direction: row; align-items: center; justify-content: center; gap: 5px; }
+.ap-label { font-size: 11px; color: var(--g48); margin-right: 2px; }
+.pip { width: 12px; height: 8px; box-sizing: border-box; border: 1px solid var(--g48); border-radius: 2px; }
+.pip-full { background-color: var(--g100); border-color: var(--g100); }
 .hp { font-family: monospace; font-size: 13px; color: var(--g72); }
 .hp-low { color: var(--g100); }
 
@@ -442,28 +397,31 @@ export default {
 .chest-open { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; }
 .chest-art { width: 120px; height: 96px; }
 .chest-name { font-size: 22px; font-weight: 500; color: var(--g100); }
-.locks { display: flex; flex-direction: row; gap: 12px; }
-.lock { font-size: 20px; color: var(--g100); }
-.lock-open { color: var(--g48); }
 .reward { font-family: monospace; font-size: 16px; color: var(--g100); }
 
 .sv-head { display: flex; flex-direction: row; justify-content: space-between; align-items: center; }
 .hooks { display: flex; flex-direction: row; gap: 6px; }
 .hook { font-size: 14px; color: var(--g100); }
 .hook-used { color: var(--g24); }
-.sea { position: relative; height: 120px; border-bottom: 1px solid var(--g48); }
-.cursor { position: absolute; top: 0; width: 2px; height: 120px; display: flex; flex-direction: column; align-items: center; }
-.cursor-head { font-size: 12px; color: var(--g100); margin-left: -5px; }
-.cursor-line { width: 1px; height: 100px; background-color: var(--g72); }
-.item {
-  position: absolute; top: 62px; height: 40px; box-sizing: border-box;
-  border: 1px solid var(--g72); border-radius: 2px; background-color: var(--g06);
-  display: flex; align-items: center; justify-content: center;
+.sea { display: flex; flex-direction: row; gap: 6px; height: 112px; }
+.card {
+  flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: space-between;
+  padding: 3px 2px; box-sizing: border-box; border: 1px solid var(--g24); border-radius: 4px;
 }
-.item-caught { border-style: dashed; border-color: var(--g24); }
-.item-tag { font-size: 13px; color: var(--g100); }
-.item-art { width: 100%; height: 36px; }
-.sea-waves { position: absolute; left: 0; bottom: 2px; font-size: 10px; color: var(--g24); }
+.card-focus { background-color: var(--g12); border-color: var(--g100); }
+.card-caught { border-style: dashed; }
+.card-dist { font-size: 10px; color: var(--g48); }
+.card-art { width: 56px; height: 44px; }
+.card-tag { height: 44px; line-height: 44px; font-size: 26px; color: var(--g100); }
+.card-caught .card-tag { color: var(--g48); }
+.card-label { font-size: 11px; color: var(--g72); }
+.card-focus .card-label { color: var(--g100); }
+.card-pct { font-family: monospace; font-size: 12px; color: var(--g100); }
+.sv-back {
+  display: flex; flex-direction: row; align-items: center; gap: 6px; height: 26px; padding: 0 8px;
+  box-sizing: border-box; border: 1px solid var(--g24); border-radius: 4px;
+}
+.sv-back-focus { background-color: var(--g12); border-color: var(--g100); }
 .sv-last { font-size: 14px; color: var(--g100); }
 
 .msgbar { height: 22px; border-top: 1px solid var(--g24); padding-top: 4px; }
@@ -485,5 +443,10 @@ export default {
 .dialog-text { flex: 1; display: flex; flex-direction: column; gap: 8px; }
 .dialog-title { font-size: 22px; font-weight: 500; color: var(--g100); }
 .dialog-line { font-size: 14px; color: var(--g72); }
+.opts { display: flex; flex-direction: column; gap: 4px; margin-top: 4px; }
+.opt { display: flex; flex-direction: row; align-items: center; gap: 6px; height: 28px; padding: 0 8px; box-sizing: border-box; border: 1px solid var(--g24); border-radius: 4px; }
+.opt-focus { background-color: var(--g12); border-color: var(--g100); }
+.opt-label { font-size: 14px; color: var(--g72); }
+.opt-focus .opt-label { color: var(--g100); }
 .dialog-action { margin-top: 6px; font-size: 11px; font-weight: 500; color: var(--g100); }
 </style>

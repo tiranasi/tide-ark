@@ -13,32 +13,37 @@ test('new game starts on home with sane resources', () => {
   assert.equal(vm.menu[0].focused, true);
 });
 
-test('filter produces water slower without power', () => {
-  const a = G.newGame(); a.res.water = 0;
-  G.tick(a, 10);
-  const weak = a.res.water;
-  const b = G.newGame(); b.res.water = 0; b.res.power = 10;
-  G.tick(b, 10);
-  assert.ok(b.res.water > weak * 3, `${b.res.water} vs ${weak}`);
+test('night production: the filter makes full water with power, 30% without', () => {
+  const a = G.newGame(); a.res.water = 20; a.lv.filter = 2; // 耗电 10，没有电鳗
+  G.endDay(a);
+  assert.equal(a.res.water, 20 - 3 + Math.floor(2 * G.NIGHT.water * 0.3));
+  const b = G.newGame(); b.res.water = 20; b.lv.filter = 2; b.res.power = 10;
+  G.endDay(b);
+  assert.equal(b.res.water, 20 - 3 + 2 * G.NIGHT.water);
+  assert.equal(b.res.power, 0);
 });
 
-test('eel generator produces power up to cap', () => {
-  const s = G.newGame(); s.lv.eel = 1; s.lv.shelter = 2; s.lv.filter = 0;
-  for (let i = 0; i < 50; i++) G.tick(s, 1); // 50 s < DAY_LEN, 0.25/s → 12.5
-  assert.ok(Math.abs(s.res.power - 12.5) < 1e-6);
-  s.res.power = 19.9;
-  G.tick(s, 1);
+test('eel generator charges at night up to the cap', () => {
+  const s = G.newGame(); s.lv.eel = 1; s.lv.shelter = 2; s.lv.filter = 0; s.res.water = 20;
+  G.endDay(s);
+  assert.equal(s.res.power, G.NIGHT.power);
+  G.press(s, 'enter');
+  s.res.power = 19;
+  G.endDay(s);
   assert.equal(s.res.power, G.caps(s).power);
 });
 
-test('day ends with report overlay and pauses time', () => {
-  const s = G.newGame();
-  G.tick(s, G.DAY_LEN);
+test('结束今天 ends the day: AP refills, report overlay, morning checkpoint', () => {
+  const s = G.newGame(); s.ap = 1;
+  const menu = G.view(s).menu;
+  assert.equal(menu.at(-1).label, '结束今天');
+  s.ui.focus = menu.length - 1;
+  G.press(s, 'enter');
   assert.equal(s.day, 2);
+  assert.equal(s.ap, G.AP_MAX);
   assert.equal(s.ui.overlay.kind, 'report');
-  const clock = s.clock;
-  G.tick(s, 5);
-  assert.equal(s.clock, clock, 'paused while overlay shown');
+  assert.equal(s.checkpoint.day, 2);
+  assert.equal(s.checkpoint.ui, undefined);
   G.press(s, 'enter');
   assert.equal(s.ui.overlay, null);
 });
@@ -54,33 +59,58 @@ test('storm and thirst damage can sink the shelter, enter restarts', () => {
   assert.equal(s.day, 1);
 });
 
-test('salvage: hook hits item under cursor and loot applies', () => {
+test('salvage: near items are visible and sure, far ones are「？」; the haul lands on return', () => {
   const s = G.newGame();
-  // rng 0 → every loot pick = scrap, x = slot start
-  assert.ok(G.startSalvage(s, () => 0));
+  assert.ok(G.startSalvage(s, () => 0)); // rng 0 → 全是废料
+  assert.equal(s.ap, G.AP_MAX - G.AP_COST.near);
   const sv = s.ui.salvage;
-  sv.cursor = sv.items[0].x + 1;
+  assert.deepEqual(sv.items.map((x) => x.hidden), [false, false, true, true, true]);
+  assert.deepEqual(sv.items.map((x) => x.odds), G.SLOT_ODDS);
+  const vm = G.view(s).salvage;
+  assert.equal(vm.items[3].tag, '？');
+  assert.equal(vm.items[3].label, '看不清');
   const before = s.res.scrap;
-  assert.equal(G.dropHook(s, () => 0), 'scrap');
-  assert.ok(s.res.scrap > before);
-  sv.cursor = 99.9; // between slots? slot 4 starts at 80, w ~10.7 → miss
-  assert.equal(G.dropHook(s, () => 0), null);
-  G.dropHook(s, () => 0);
+  assert.equal(G.dropHook(s, () => 0, 0), 'scrap');
+  assert.equal(s.res.scrap, before, 'not stored until the boat is back');
+  assert.equal(sv.pending.length, 1);
+  assert.equal(s.ui.focus, 1, 'focus skips the caught item');
+  assert.equal(G.dropHook(s, () => 0.99, 4), null, 'far item slips off');
+  assert.equal(sv.items[4].missed, true);
+  assert.equal(sv.items[4].hidden, false);
+  G.dropHook(s, () => 0, 1);
   assert.equal(sv.done, true);
+  assert.equal(s.ui.focus, G.salvageReturnIdx(sv));
   G.press(s, 'enter');
   assert.equal(s.ui.screen, 'home');
-  assert.equal(s.cooldown, G.SALVAGE_COOLDOWN);
-  assert.equal(G.startSalvage(s), false, 'cooldown blocks');
+  assert.equal(s.res.scrap, before + 6);
+  assert.equal(s.ui.msg, '返航：#+6');
 });
 
-test('salvage cursor bounces within 0..100', () => {
+test('salvage: focus walks items and the 返航 row, skipping caught ones; back banks the haul', () => {
   const s = G.newGame();
-  G.startSalvage(s, Math.random);
-  for (let i = 0; i < 500; i++) {
-    G.salvageStep(s, 0.05);
-    const c = s.ui.salvage.cursor;
-    assert.ok(c >= 0 && c <= 100);
-  }
+  G.startSalvage(s, () => 0);
+  G.press(s, 'up');
+  assert.equal(s.ui.focus, 5, 'wraps to 返航');
+  G.press(s, 'down');
+  assert.equal(s.ui.focus, 0);
+  G.dropHook(s, () => 0, 1);
+  G.press(s, 'down');
+  assert.equal(s.ui.focus, 2, 'skips the caught item');
+  const before = s.res.scrap;
+  assert.equal(G.press(s, 'back'), true);
+  assert.equal(s.ui.screen, 'home');
+  assert.equal(s.res.scrap, before + 3);
+});
+
+test('action points: trips cost AP, out of AP the trip is refused', () => {
+  const s = G.newGame();
+  for (let i = 0; i < G.AP_MAX / G.AP_COST.near; i++) { assert.ok(G.startSalvage(s, () => 0)); G.finishSalvage(s); }
+  assert.equal(s.ap, 0);
+  assert.equal(G.startSalvage(s, () => 0), false);
+  assert.match(s.ui.msg, /行动力不够/);
+  assert.equal(G.view(s).menu[0].off, true);
+  s.res.scrap = 99; s.res.water = 30;
+  assert.equal(G.upgrade(s, 'shelter'), false, 'building needs AP too');
 });
 
 test('upgrades respect costs and locks', () => {
@@ -114,22 +144,22 @@ test('the ark (Lv8) waits for chapter 8 and needs filter parts', () => {
   assert.equal(G.costOf(s, 'shelter').max, true);
 });
 
-test('chest opening needs one press per lock and grants reward', () => {
+test('a chest opens with one press for 1 AP; the next press closes it', () => {
   const s = G.newGame();
   s.chests = ['iron'];
   s.ui.screen = 'chests';
-  G.press(s, 'enter', () => 0.5); // start
-  assert.equal(s.ui.chest.need, 3);
-  G.press(s, 'enter', () => 0.5);
-  G.press(s, 'enter', () => 0.5);
-  assert.equal(s.ui.chest.reward, null);
   const scrap = s.res.scrap;
   G.press(s, 'enter', () => 0.5);
+  assert.equal(s.ap, G.AP_MAX - G.AP_COST.chest);
   assert.ok(s.ui.chest.reward);
   assert.equal(s.chests.length, 0);
   assert.ok(s.res.scrap > scrap);
   G.press(s, 'enter');
   assert.equal(s.ui.chest, null);
+  s.chests = ['wood']; s.ap = 0;
+  G.press(s, 'enter');
+  assert.equal(s.chests.length, 1, 'no AP, stays shut');
+  assert.match(s.ui.msg, /行动力不够/);
 });
 
 test('navigation: focus wraps, back returns home, back on home is unhandled', () => {
@@ -172,16 +202,50 @@ test('view model is JSON-serializable for setData', () => {
 // ---------- M1：章节 / 居民 / 风暴季 ----------
 const ack = (s) => { const ids = []; while (s.ui.overlay) { ids.push(s.ui.overlay.id || s.ui.overlay.kind); G.press(s, 'enter'); } return ids; };
 const sail = (s, kindWanted) => {
-  // 出海并直接钩中指定种类的物品
+  // 出海并直接钩中指定种类的物品（rng 0 → 一定钩中）
   G.press(s, 'enter'); // 主界面焦点 0 = 出海打捞
   const sv = s.ui.salvage;
-  const it = sv.items.find((x) => x.kind === kindWanted);
-  if (it) sv.cursor = it.x + it.w / 2;
-  G.press(s, 'enter');
+  const i = sv.items.findIndex((x) => x.kind === kindWanted);
+  if (i >= 0) { s.ui.focus = i; G.press(s, 'enter', () => 0); }
   G.press(s, 'back');
-  s.cooldown = 0;
-  return it;
+  s.ap = G.AP_MAX;
+  return sv.items[i];
 };
+
+test('action points: once spent, focus jumps to 结束今天 back on the home screen', () => {
+  const s = G.newGame(); s.chapter = 1; s.seen.ch1 = true; s.ap = G.AP_COST.near;
+  G.press(s, 'enter');
+  assert.equal(s.ap, 0);
+  G.press(s, 'back');
+  const menu = G.view(s).menu;
+  assert.equal(menu[s.ui.focus].label, '结束今天');
+  G.press(s, 'enter');
+  assert.equal(s.day, 2);
+  assert.equal(s.ap, G.AP_MAX);
+});
+
+test('sinking offers a retry from this morning; back does not wipe the save', () => {
+  const s = G.newGame(); s.res.water = 20;
+  G.endDay(s); ack(s); // 第 2 天早上的重来点
+  s.res.scrap = 77; s.hp = 3; s.res.water = 0;
+  G.endDay(s);
+  assert.equal(s.ui.overlay.kind, 'over');
+  assert.equal(s.ui.overlay.options.length, 2);
+  assert.equal(G.press(s, 'back'), true);
+  assert.equal(s.over, true, 'back is swallowed');
+  G.press(s, 'enter');
+  assert.equal(s.over, false);
+  assert.equal(s.day, 2);
+  assert.equal(s.hp, G.HP_MAX);
+  assert.equal(s.res.scrap, 8, 'state from that morning');
+  assert.equal(s.checkpoint.day, 2, 'can retry again');
+  assert.match(s.ui.msg, /回到第 2 天早上/);
+  s.hp = 3; s.res.water = 0;
+  G.endDay(s);
+  G.press(s, 'down'); G.press(s, 'enter'); // 从头开始
+  assert.equal(s.day, 1);
+  assert.equal(s.ui.overlay.id, 'prologue1');
+});
 
 test('prologue plays on first launch; first trip finishes the prologue chapter', () => {
   const s = G.restore(null);
@@ -199,7 +263,7 @@ test('drift survivor always spawns when due and joins with a bonus', () => {
   s.chapter = 1; s.day = 1;
   G.startSalvage(s, () => 0.3);
   assert.ok(!s.ui.salvage.items.some((x) => x.kind === 'drift'), 'not before day 2');
-  G.finishSalvage(s); s.cooldown = 0;
+  G.finishSalvage(s);
   s.day = 2;
   const before = G.costOf(s, 'shelter').scrap;
   const it = sail(s, 'drift');
@@ -251,14 +315,15 @@ test('storms: none before storm season, then every 3rd night, armor defends', ()
 });
 
 test('residents drink water; the cook offsets one share', () => {
+  const made = Math.floor(G.NIGHT.water * 0.3); // 没电，过滤器 30%
   const s = G.newGame();
-  s.res.water = 50; s.npc = { rivet: true, coral: true };
+  s.res.water = 20; s.npc = { rivet: true, coral: true };
   G.endDay(s);
-  assert.equal(s.res.water, 50 - (3 + 0 + 2));
+  assert.equal(s.res.water, 20 - (3 + 0 + 2) + made);
   const t = G.newGame();
-  t.res.water = 50; t.npc = { rivet: true, coral: true, pot: true };
+  t.res.water = 20; t.npc = { rivet: true, coral: true, pot: true };
   G.endDay(t);
-  assert.equal(t.res.water, 50 - (3 + 3 - 1));
+  assert.equal(t.res.water, 20 - (3 + 3 - 1) + made);
   assert.ok(G.rates(t).gen === 0, 'no eels, no power even with coral');
 });
 
@@ -316,17 +381,18 @@ test('trader visits every 3 days from the day after chapter 4 starts', () => {
   G.press(s, 'down'); // 触发 progress → 商人剧情
   assert.equal(s.ui.overlay.id, 'trader');
   ack(s);
-  assert.equal(G.view(s).menu.length, 5);
-  s.ui.focus = 4; G.press(s, 'enter');
+  assert.deepEqual(G.view(s).menu.map((m) => m.label).slice(3), ['秤砣', '结束今天']);
+  s.ui.focus = 3; G.press(s, 'enter');
   assert.equal(s.ui.screen, 'trade');
   assert.equal(G.view(s).menu.length, 3);
   const before = { ...s.res };
   assert.equal(G.trade(s, 0), true);
   assert.notDeepEqual(s.res, before);
+  assert.equal(s.ap, G.AP_MAX, 'trading is free');
   assert.equal(G.trade(s, 0), false, 'once per visit');
   assert.equal(s.flags.traded, true);
   G.press(s, 'back');
-  assert.equal(s.ui.focus, 4, 'focus returns to the trader row');
+  assert.equal(s.ui.focus, 3, 'focus returns to the trader row');
   s.day = 12;
   assert.equal(G.view(s).menu.length, 4, 'trader is gone');
 });
@@ -353,25 +419,33 @@ test('chapter 5: lighthouse uncle joins, turtle unlocks the wreck zone', () => {
   assert.equal(G.view(s).goal, null);
 });
 
-test('blueprints: guaranteed from the 3rd wreck trip, 3 pieces finish chapter 5', () => {
+test('blueprints: a 35% chance per wreck trip, guaranteed from the 3rd, always nearest and sure', () => {
+  const crewed = (s) => Object.assign(s.npc, { rivet: true, coral: true, pot: true, hawk: true }); // 没有漂流者占最近一格
+  const lucky = atChapter(5); crewed(lucky); lucky.lv.turtle = 1;
+  G.startSalvage(lucky, () => 0.01, 'wreck');
+  assert.equal(lucky.ui.salvage.items[0].kind, 'blueprint', 'lucky roll on the 1st trip');
+
   const s = atChapter(5);
-  s.npc.hawk = true; s.lv.turtle = 1;
-  const noBp = () => 0.01; // 永远抽到废料
+  crewed(s); s.lv.turtle = 1;
+  const mid = () => 0.5; // 0.5 ≥ KEY_CHANCE：前两趟碰不到
   for (let trip = 1; trip <= 2; trip++) {
-    G.startSalvage(s, noBp, 'wreck');
+    G.startSalvage(s, mid, 'wreck');
     assert.ok(!s.ui.salvage.items.some((x) => x.kind === 'blueprint'));
-    G.finishSalvage(s); s.cooldown = 0;
+    G.finishSalvage(s); s.ap = G.AP_MAX;
   }
   for (let n = 1; n <= 3; n++) {
-    G.startSalvage(s, noBp, 'wreck');
-    const bp = s.ui.salvage.items.find((x) => x.kind === 'blueprint');
-    assert.ok(bp, `trip ${n + 2} has a blueprint`);
-    s.ui.salvage.cursor = bp.x + bp.w / 2;
-    G.dropHook(s);
-    G.finishSalvage(s); s.cooldown = 0;
+    G.startSalvage(s, mid, 'wreck');
+    const i = s.ui.salvage.items.findIndex((x) => x.kind === 'blueprint');
+    assert.equal(i, 0, `trip ${n + 2} has a blueprint in the nearest slot`);
+    const bp = s.ui.salvage.items[0];
+    assert.equal(bp.tag, '!');
+    assert.equal(bp.odds, 1);
+    G.dropHook(s, () => 0.99, 0);
+    assert.equal(s.flags.blueprint, n, 'applied at once');
+    G.finishSalvage(s); s.ap = G.AP_MAX;
   }
   assert.equal(s.flags.blueprint, 3);
-  G.startSalvage(s, noBp, 'wreck');
+  G.startSalvage(s, mid, 'wreck');
   assert.ok(!s.ui.salvage.items.some((x) => x.kind === 'blueprint'), 'none once collected');
   G.finishSalvage(s);
   s.flags.wreck = true;
@@ -379,26 +453,28 @@ test('blueprints: guaranteed from the 3rd wreck trip, 3 pieces finish chapter 5'
   assert.equal(s.chapter, 6);
 });
 
-test('shark snaps an extra hook and costs 5 durability', () => {
+test('shark: only far away; snaps an extra hook, costs 5 durability and half the haul', () => {
   const s = atChapter(5);
-  s.lv.turtle = 1;
-  G.startSalvage(s, () => 0.99, 'wreck'); // 权重表最后一项 = 巨鲨
-  const sh = s.ui.salvage.items.find((x) => x.kind === 'shark');
-  assert.ok(sh);
-  s.ui.salvage.cursor = sh.x + 0.1;
-  G.dropHook(s);
-  assert.equal(s.ui.salvage.hooks, G.HOOKS_PER_TRIP - 2);
+  s.lv.turtle = 1; s.npc.hawk = true; s.flags.blueprint = G.BLUEPRINTS;
+  G.startSalvage(s, () => 0.99, 'wreck'); // 远处权重表最后一项 = 巨鲨
+  const sv = s.ui.salvage;
+  assert.ok(sv.items.slice(0, 2).every((x) => x.kind !== 'shark'), 'never near');
+  const i = sv.items.findIndex((x) => x.kind === 'shark');
+  assert.ok(i >= 2);
+  const g = { res: { scrap: 5 }, text: '#+5' };
+  sv.pending.push(g, g, g);
+  G.dropHook(s, () => 0, i);
+  assert.equal(sv.hooks, G.HOOKS_PER_TRIP - 2);
   assert.equal(s.hp, G.HP_MAX - 5);
+  assert.equal(sv.pending.length, 1, 'ceil(3/2) taken');
+  assert.match(sv.last, /叼走 2 件/);
 });
 
-test('lantern beacon slows the cursor', () => {
+test('lantern beacon raises the odds of far items', () => {
   const s = G.newGame();
-  G.startSalvage(s, () => 0.3);
-  const base = s.ui.salvage.speed;
-  G.finishSalvage(s); s.cooldown = 0;
   s.lv.lure = 2;
   G.startSalvage(s, () => 0.3);
-  assert.ok(Math.abs(s.ui.salvage.speed - base * 0.8) < 1e-9);
+  assert.deepEqual(s.ui.salvage.items.map((x) => Math.round(x.odds * 100)), [100, 90, 85, 70, 55]);
 });
 
 test('pirates: night after a storm, fight or pay, win recruits the captain', () => {
@@ -415,7 +491,10 @@ test('pirates: night after a storm, fight or pay, win recruits the captain', () 
   s.res.scrap = 100;
   G.endDay(s);
   assert.equal(s.ui.overlay.kind, 'raid');
-  G.press(s, 'back');
+  assert.equal(G.press(s, 'back'), true);
+  assert.equal(s.ui.overlay.kind, 'raid', 'back does not answer');
+  assert.equal(s.ui.overlay.pick, 1, 'defaults to paying when the fight is lost');
+  G.press(s, 'enter');
   assert.equal(s.res.scrap, 50);
   assert.equal(s.ui.overlay.kind, 'report');
   assert.match(s.ui.overlay.lines.join('|'), /交了保护费/);
@@ -424,6 +503,7 @@ test('pirates: night after a storm, fight or pay, win recruits the captain', () 
   // 打输：-20 耐久、-30% 废料
   s.day = 10; s.hp = 100; s.res.scrap = 100;
   G.endDay(s);
+  G.press(s, 'up'); // 选「打」
   G.press(s, 'enter');
   assert.equal(s.hp, 80);
   assert.equal(s.res.scrap, 70);
@@ -465,30 +545,28 @@ test('chapter 7: sunken city, the diver, a guaranteed keycard, then the lab', ()
   assert.equal(G.upgrade(s, 'turtle'), true);
   assert.deepEqual(ack(s), ['sunken_zone']);
   assert.deepEqual(G.zonesOf(s), ['near', 'wreck', 'sunken']);
-  const scrapOnly = () => 0.01;
-  // 第 1 趟：气泡的断气管必出；救起后沉城多 1 钩
-  G.startSalvage(s, scrapOnly, 'sunken');
-  const drift = s.ui.salvage.items.find((x) => x.kind === 'drift');
-  assert.equal(drift && drift.npc, 'bubble');
-  s.ui.salvage.cursor = drift.x + drift.w / 2;
-  G.dropHook(s);
+  const mid = () => 0.5; // ≥ KEY_CHANCE：门禁卡要等第 3 趟
+  // 第 1 趟：气泡的断气管必出，在最近一格；救起后沉城多 1 钩
+  G.startSalvage(s, mid, 'sunken');
+  const drift = s.ui.salvage.items[0];
+  assert.equal(drift.kind, 'drift');
+  assert.equal(drift.npc, 'bubble');
+  G.dropHook(s, mid, 0);
   assert.equal(s.npc.bubble, true);
   assert.ok(s.seen.bubble_found);
-  G.finishSalvage(s); s.cooldown = 0;
+  G.finishSalvage(s); s.ap = G.AP_MAX;
   // 第 2 趟：4 钩，还没有门禁卡
-  G.startSalvage(s, scrapOnly, 'sunken');
+  G.startSalvage(s, mid, 'sunken');
   assert.equal(s.ui.salvage.hooks, G.HOOKS_PER_TRIP + 1);
   assert.equal(G.view(s).salvage.hooks.length, G.HOOKS_PER_TRIP + 1);
   assert.ok(!s.ui.salvage.items.some((x) => x.kind === 'keycard'));
-  G.finishSalvage(s); s.cooldown = 0;
+  G.finishSalvage(s); s.ap = G.AP_MAX;
   // 第 3 趟：门禁卡必出
-  G.startSalvage(s, scrapOnly, 'sunken');
-  const card = s.ui.salvage.items.find((x) => x.kind === 'keycard');
-  assert.ok(card, 'keycard forced on the 3rd trip');
-  s.ui.salvage.cursor = card.x + card.w / 2;
-  G.dropHook(s);
+  G.startSalvage(s, mid, 'sunken');
+  assert.equal(s.ui.salvage.items[0].kind, 'keycard', 'keycard forced on the 3rd trip');
+  G.dropHook(s, mid, 0);
   assert.equal(s.flags.keycard, true);
-  G.finishSalvage(s); s.cooldown = 0;
+  G.finishSalvage(s); s.ap = G.AP_MAX;
   clearStory(s);
   // 海域列表多出实验室；下潜后进入第八章
   assert.deepEqual(G.zonesOf(s), ['near', 'wreck', 'sunken', 'lab']);
@@ -498,6 +576,7 @@ test('chapter 7: sunken city, the diver, a guaranteed keycard, then the lab', ()
   assert.equal(G.view(s).menu.at(-1).label, '沉没实验室');
   G.press(s, 'enter');
   assert.equal(s.flags.lab, true);
+  assert.equal(s.ap, G.AP_MAX - G.AP_COST.lab);
   assert.equal(s.ui.screen, 'home');
   assert.equal(s.chapter, 8);
   assert.deepEqual(ack(s), ['lab', 'lin', 'tidesong', 'truth', 'ch8', 'engine']);
@@ -506,17 +585,16 @@ test('chapter 7: sunken city, the diver, a guaranteed keycard, then the lab', ()
   assert.ok(!s.npc.lin, 'lab survivors do not drink from the shelter');
 });
 
-test('jellyfish slows the cursor by 30% for the trip', () => {
+test('jellyfish lights up the sea: every「？」is revealed', () => {
   const s = G.newGame();
   s.lv.turtle = 2;
-  G.startSalvage(s, () => 0.999, 'sunken'); // 权重表最后一项 = 水母
+  G.startSalvage(s, () => 0.999, 'sunken'); // 远处权重表最后一项 = 水母
   const sv = s.ui.salvage;
-  const base = sv.speed;
-  const j = sv.items.find((x) => x.kind === 'jelly');
-  assert.ok(j);
-  sv.cursor = j.x + 0.1;
-  G.dropHook(s);
-  assert.ok(Math.abs(sv.speed - base * 0.7) < 1e-9);
+  const j = sv.items.findIndex((x) => x.kind === 'jelly');
+  assert.ok(j >= G.NEAR_SLOTS, 'only far away');
+  assert.ok(sv.items.some((x) => x.hidden));
+  G.dropHook(s, () => 0, j);
+  assert.ok(sv.items.every((x) => !x.hidden));
 });
 
 test('octopus nights: after the sunken city opens, storms hit 20% harder', () => {
@@ -543,14 +621,13 @@ test('bottle letters: a line from another drifter, rotating through 10', () => {
   for (let i = 0; i < 11; i++) {
     G.startSalvage(s, () => 0.999, 'near'); // 近海权重表最后一项 = 漂流瓶
     const sv = s.ui.salvage;
-    const b = sv.items.find((x) => x.kind === 'letter');
-    assert.ok(b, 'letter spawned');
-    sv.cursor = b.x + 0.1;
-    G.dropHook(s);
+    const b = sv.items.findIndex((x) => x.kind === 'letter');
+    assert.ok(b >= 0, 'letter spawned');
+    G.dropHook(s, () => 0, b);
     assert.equal(sv.last, `漂流瓶：「${G.LETTERS[i % 10]}」`);
     assert.deepEqual(sv.haul, ['漂流瓶']);
     G.finishSalvage(s, true);
-    s.cooldown = 0;
+    s.ap = G.AP_MAX;
   }
   assert.equal(s.flags.letters, 11);
 });
@@ -582,12 +659,14 @@ test('ending: handing over the plans means no more drinking water cost', () => {
   assert.equal(s.ui.overlay.id, 'ark'); G.press(s, 'enter');
   assert.equal(s.ui.overlay.id, 'confront'); G.press(s, 'enter');
   assert.equal(s.ui.overlay.kind, 'choice');
-  assert.equal(G.press(s, 'back'), true, 'back answers the choice, does not exit');
+  assert.equal(G.press(s, 'back'), true, 'back is swallowed, does not exit');
+  assert.equal(s.ui.overlay.kind, 'choice', 'and does not answer');
+  assert.equal(s.ending, null);
+  G.press(s, 'down'); G.press(s, 'enter');
   assert.equal(s.ending, 'deal');
   assert.deepEqual(ack(s), ['end_deal', 'hook']);
-  const w = s.res.water;
   G.endDay(s);
-  assert.equal(s.res.water, w);
+  assert.match(s.ui.overlay.lines[0], /^饮水 ≈-0 /);
 });
 
 test('a choice lost to a save is asked again after loading', () => {
@@ -599,14 +678,26 @@ test('a choice lost to a save is asked again after loading', () => {
   assert.equal(r.ending, null);
 });
 
-test('saves are v2; v0.1 saves infer the chapter from levels', () => {
-  assert.equal(G.newGame().v, 2);
+test('v2 (real-time) saves load into the AP model', () => {
+  const old = G.newGame();
+  Object.assign(old, { v: 2, clock: 40, cooldown: 3, returns: [{ npc: 'rivet' }], crew: { rivet: { zone: 'wreck', left: 12 } } });
+  delete old.ap; delete old.checkpoint; delete old.ui;
+  old.npc.rivet = true;
+  const s = G.restore(JSON.parse(JSON.stringify(old)));
+  assert.equal(s.v, G.SAVE_VERSION);
+  assert.equal(s.ap, G.AP_MAX);
+  assert.deepEqual(s.crew, { rivet: { zone: 'wreck' } });
+  for (const k of ['clock', 'cooldown', 'returns']) assert.equal(k in s, false, k);
+});
+
+test('saves are v3; v0.1 saves infer the chapter from levels', () => {
+  assert.equal(G.newGame().v, 3);
   const old = G.newGame();
   delete old.chapter; delete old.npc; delete old.flags; delete old.seen; delete old.queue; delete old.ui; delete old.ending;
   old.v = 1; old.won = true; old.arkSeen = true;
   Object.assign(old.lv, { shelter: 4, filter: 3, eel: 2 });
   const s = G.restore(JSON.parse(JSON.stringify(old)));
-  assert.equal(s.v, 2);
+  assert.equal(s.v, G.SAVE_VERSION);
   assert.equal(s.chapter, 4);
   assert.deepEqual(Object.keys(s.npc).sort(), ['coral', 'pot', 'rivet']);
   assert.equal(s.flags.ch4Day, s.day);
@@ -622,7 +713,7 @@ test('crew: home shows 居民 once someone lives aboard; enter → list → resi
   assert.ok(!G.view(s).menu.some((m) => m.label === '居民'));
   s.npc.rivet = true;
   const idx = G.view(s).menu.findIndex((m) => m.label === '居民');
-  assert.equal(idx, 3, 'before 修补');
+  assert.equal(idx, 3, 'after 宝箱');
   s.ui.focus = idx;
   G.press(s, 'enter');
   assert.equal(s.ui.screen, 'crew');
@@ -638,22 +729,21 @@ test('crew: home shows 居民 once someone lives aboard; enter → list → resi
   assert.equal(s.ui.focus, idx, 'focus returns to 居民');
 });
 
-test('crew: dispatch costs water, returns after DISPATCH_SECS with loot and a report', () => {
+test('crew: dispatch costs water but no AP; the haul comes back at night inside the report', () => {
   const s = crewGame();
   s.ui.screen = 'mate'; s.ui.mate = 'rivet'; s.ui.focus = 0;
   G.press(s, 'enter');
   assert.equal(s.res.water, 10 - G.DISPATCH_WATER);
-  assert.ok(s.crew.rivet);
+  assert.equal(s.ap, G.AP_MAX, 'free action');
+  assert.deepEqual(s.crew.rivet, { zone: 'near' });
   assert.equal(s.ui.screen, 'crew');
   assert.equal(G.dispatch(s, 'rivet', 'near'), false, 'already away');
   const scrap = s.res.scrap;
-  G.tick(s, G.DISPATCH_SECS - 1, () => 0);
-  assert.ok(s.crew.rivet, 'not back yet');
-  G.tick(s, 1, () => 0); // rng 0 → scrap
+  G.endDay(s, () => 0); // rng 0 → 废料
   assert.ok(!s.crew.rivet);
-  assert.ok(s.res.scrap > scrap);
-  assert.equal(s.ui.overlay.kind, 'crew');
-  assert.equal(s.ui.overlay.haul.length, 2);
+  assert.equal(s.res.scrap, scrap + 3);
+  assert.equal(s.ui.overlay.kind, 'report');
+  assert.ok(s.ui.overlay.lines.includes('派遣 1 人：#+3'), s.ui.overlay.lines.join('|'));
   assert.equal(s.bond.rivet, 1);
 });
 
@@ -665,36 +755,27 @@ test('crew: no water, no dispatch', () => {
 
 test('crew: specialty zone and bond ≥3 each add one item', () => {
   const s = crewGame();
-  assert.equal(G.dispatchSize(s, 'rivet', 'near'), 2);
-  assert.equal(G.dispatchSize(s, 'rivet', 'wreck'), 3);
+  assert.equal(G.dispatchSize(s, 'rivet', 'near'), 1);
+  assert.equal(G.dispatchSize(s, 'rivet', 'wreck'), 2);
   s.bond.rivet = 3;
-  assert.equal(G.dispatchSize(s, 'rivet', 'wreck'), 4);
+  assert.equal(G.dispatchSize(s, 'rivet', 'wreck'), 3);
 });
 
 test('crew: a shark costs one item', () => {
   const s = crewGame(); s.lv.turtle = 1; s.chapter = 5;
   assert.ok(G.zonesOf(s).includes('wreck'));
   G.dispatch(s, 'rivet', 'wreck');
-  G.tick(s, G.DISPATCH_SECS, () => 0.999); // last entry in the wreck table → shark
-  const o = s.ui.overlay;
-  assert.equal(o.kind, 'crew');
-  assert.ok(o.lines[0].includes('巨鲨'));
-  assert.ok(o.haul.length < G.dispatchSize(s, 'rivet', 'wreck'));
+  G.endDay(s, () => 0.999); // 残骸带权重表最后一项 → 巨鲨
+  const line = s.ui.overlay.lines.find((l) => l.startsWith('派遣'));
+  assert.equal(line, '派遣 1 人：空手 · 遇鲨丢 2');
 });
 
-test('crew: return report waits for salvage and story overlays', () => {
-  const s = crewGame();
+test('crew: several residents merge into one report line', () => {
+  const s = crewGame(); s.npc.coral = true; s.res.water = 20;
   G.dispatch(s, 'rivet', 'near');
-  assert.ok(G.startSalvage(s, () => 0));
-  s.crew.rivet.left = 0.01;
-  G.tick(s, 1, () => 0);
-  assert.equal(s.ui.overlay, null, 'not mid-salvage');
-  assert.equal(s.returns.length, 1);
-  while (s.ui.salvage) G.press(s, s.ui.salvage.done ? 'enter' : 'back');
-  while (s.ui.overlay && s.ui.overlay.kind !== 'crew') G.press(s, 'enter');
-  assert.equal(s.ui.overlay.kind, 'crew');
-  G.press(s, 'enter');
-  assert.equal(s.ui.overlay, null);
+  G.dispatch(s, 'coral', 'near');
+  G.endDay(s, () => 0);
+  assert.ok(s.ui.overlay.lines.some((l) => /^派遣 2 人：#\+\d+$/.test(l)), s.ui.overlay.lines.join('|'));
 });
 
 test('crew: talk rotates lines, bond +1 once per day, warns on a dangerous night', () => {
@@ -720,16 +801,14 @@ test('crew: away residents cannot talk', () => {
   assert.equal(G.talk(s, 'rivet'), false);
 });
 
-test('crew: save round trip keeps crew, bond and pending returns', () => {
+test('crew: save round trip keeps crew and bond', () => {
   const s = crewGame();
   G.dispatch(s, 'rivet', 'near');
   s.bond.rivet = 2;
-  s.returns.push({ npc: 'rivet', zone: 'near', haul: ['废料+3'], shark: false });
   const r = G.restore(JSON.parse(JSON.stringify(G.serialize(s))));
-  assert.equal(r.crew.rivet.zone, 'near');
+  assert.deepEqual(r.crew.rivet, { zone: 'near' });
   assert.equal(r.bond.rivet, 2);
-  assert.equal(r.ui.overlay.kind, 'crew', 'pending report shows on load');
-  assert.equal(r.returns.length, 0);
+  assert.equal(r.ui.overlay, null);
 });
 
 test('crew: LLM prompt carries persona and state, the model only supplies words', () => {
