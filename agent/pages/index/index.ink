@@ -27,6 +27,11 @@ export default {
     this.handled = {};
     this.saveCountdown = SAVE_EVERY;
     this.render();
+    // 只记日志，便于真机调试时确认大模型是否可用
+    Promise.resolve()
+      .then(() => (LanguageModel ? LanguageModel.availability() : 'missing'))
+      .then((a) => console.log(`[tideark] llm availability: ${a}`))
+      .catch((err) => console.warn('[tideark] llm availability failed', err));
   },
 
   onShow() {

@@ -1,7 +1,14 @@
 {
+  "agentName": "潮汐方舟",
+  "displayName": "潮汐方舟",
+  "version": "0.1.0",
+  "description": "末世漂流生存经营小游戏：出海打捞、升级庇护所、熬过风暴潮。",
+  "agentDesc": "末世漂流生存经营小游戏：出海打捞、升级庇护所、熬过风暴潮。",
+  "agentPrompt": "当用户说“打开潮汐方舟”“玩漂流游戏”“继续方舟”时打开本智能体。游戏是全屏页面，用镜腿前后滑和单击操作。",
   "pages": [
     "pages/index/index"
   ],
+  "entryPagePath": "pages/index/index",
   "window": {
     "navigationBarTitleText": "潮汐方舟"
   }

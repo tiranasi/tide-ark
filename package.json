@@ -6,9 +6,13 @@
   "description": "潮汐方舟 — Rokid Glasses AIUI 末世漂流生存小游戏",
   "scripts": {
     "test": "node --test tests/game.test.mjs",
-    "preview": "node tools/serve.mjs"
+    "preview": "node tools/serve.mjs",
+    "aix:show": "node tools/aix.mjs show",
+    "aix:pack": "node tools/aix.mjs pack",
+    "aix:install": "node tools/aix.mjs install"
   },
   "devDependencies": {
+    "@yodaos-pkg/aix-cli": "0.10.1",
     "pngjs": "^7.0.0"
   }
 }
